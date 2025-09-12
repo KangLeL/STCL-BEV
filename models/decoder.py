@@ -7,6 +7,9 @@ import torchvision
 
 from models.encoder import freeze_bn, UpsamplingConcat
 
+from .relation import PairwiseRelationHead
+
+
 
 class Decoder(nn.Module):
     def __init__(self, in_channels, n_classes, n_ids):
@@ -27,7 +30,7 @@ class Decoder(nn.Module):
         shared_out_channels = in_channels
         self.up3_skip = UpsamplingConcat(256 + 128, 256)
         self.up2_skip = UpsamplingConcat(256 + 64, 256)
-        self.up1_skip = UpsamplingConcat(256 + 512, shared_out_channels)
+        self.up1_skip = UpsamplingConcat(256 + in_channels, shared_out_channels)
 
         # bev
         self.instance_offset_head = nn.Sequential(
@@ -92,6 +95,11 @@ class Decoder(nn.Module):
         )
         self.emb_scale = math.sqrt(2) * math.log(n_ids - 1)
 
+        self.relation = True
+
+        if self.relation:
+            self.pairwise_relation_head = PairwiseRelationHead(256, 256)
+
     def forward(self, x, feat_cams, bev_flip_indices=None):
         b, c, h, w = x.shape
 
@@ -114,6 +122,13 @@ class Decoder(nn.Module):
 
         # (H/8, W/8)
         x = self.layer3(x)
+
+        if self.relation:
+            B, C, H, W = x.shape
+            x_ = x.permute(0, 2, 3, 1).view(B, H * W, C)
+            x_ = self.pairwise_relation_head(x_)
+            x = x_.view(B, H, W, C).permute(0, 3, 1, 2)
+
 
         # First upsample to (H/4, W/4)
         x = self.up3_skip(x, skip_x['3'])

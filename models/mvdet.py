@@ -10,6 +10,7 @@ from models.encoder import Encoder_res101, Encoder_res50, Encoder_res18, Encoder
 from models.decoder import Decoder
 
 
+
 class MVDet(nn.Module):
     def __init__(self, Y, Z, X,
                  rand_flip=False,
@@ -78,6 +79,7 @@ class MVDet(nn.Module):
         self.size_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.rot_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
 
+
     def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global):
         """
         B = batch size, S = number of cameras, C = 3, H = img height, W = img width
@@ -129,6 +131,7 @@ class MVDet(nn.Module):
         # world_features_cam = __p(world_features.unsqueeze(1).repeat(1, S, 1, 1, 1))
         # feat_cams_back_ = warp_perspective(world_features_cam, back_proj_mats, (Hf, Wf), align_corners=False)
         # feat_cams_ = feat_cams_ + self.cam_out(feat_cams_back_)
+
 
         out_dict = self.decoder(world_features, feat_cams_,
                                 (self.bev_flip1_index, self.bev_flip2_index) if self.rand_flip else None)
