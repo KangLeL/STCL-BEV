@@ -98,7 +98,7 @@ class Decoder(nn.Module):
         self.relation = True
 
         if self.relation:
-            self.pairwise_relation_head = PairwiseRelationHead(256, 256)
+            self.pairwise_relation_head = PairwiseRelationHead(64, 128)
 
     def forward(self, x, feat_cams, bev_flip_indices=None):
         b, c, h, w = x.shape
@@ -122,13 +122,6 @@ class Decoder(nn.Module):
 
         # (H/8, W/8)
         x = self.layer3(x)
-
-        if self.relation:
-            B, C, H, W = x.shape
-            x_ = x.permute(0, 2, 3, 1).view(B, H * W, C)
-            x_ = self.pairwise_relation_head(x_)
-            x = x_.view(B, H, W, C).permute(0, 3, 1, 2)
-
 
         # First upsample to (H/4, W/4)
         x = self.up3_skip(x, skip_x['3'])
@@ -157,6 +150,22 @@ class Decoder(nn.Module):
         instance_rot_output = self.instance_rot_head(x)
         instance_id_feat_output = self.emb_scale * F.normalize(self.id_feat_head(x), dim=1)
 
+        if self.relation:
+            # 1. 提取 top-K 目标
+            topk_feats, topk_inds = extract_topk_features(
+                instance_id_feat_output, instance_center_output, K=60
+            )  # [B, K, C]
+
+            # 2. 做关系建模
+            B, K, C = topk_feats.shape
+            feats_rel = self.pairwise_relation_head(topk_feats)  # [B, K, C]
+
+            # 3. scatter 回去
+            id_feat_flat = instance_id_feat_output.view(B, C, -1).permute(0, 2, 1)  # [B, H*W, C]
+            for bc in range(B):
+                id_feat_flat[bc, topk_inds[bc]] = feats_rel[bc]
+            instance_id_feat_output = id_feat_flat.permute(0, 2, 1).view_as(instance_id_feat_output)
+
         # img
         img_center_output = self.img_center_head(feat_cams)  # B*S,1,H/8,W/8
         img_offset_output = self.img_offset_head(feat_cams)  # B*S,2,H/8,W/8
@@ -177,3 +186,24 @@ class Decoder(nn.Module):
             'img_size': img_size_output,
             'img_id_feat': img_id_feat_output,
         }
+
+
+
+
+def extract_topk_features(feat_map, center_map, K=100):
+    """
+    feat_map: [B, C, H, W]
+    center_map: [B, 1, H, W]  (热力图)
+    return: topk_feats [B, K, C], indices [B, K]
+    """
+    B, C, H, W = feat_map.shape
+    center_flat = center_map.view(B, -1)                  # [B, H*W]
+    scores, inds = torch.topk(center_flat, K, dim=1)      # [B, K]
+
+    feats = []
+    for b in range(B):
+        feat_flat = feat_map[b].view(C, -1).permute(1, 0)  # [H*W, C]
+        feat_sel = feat_flat[inds[b]]                     # [K, C]
+        feats.append(feat_sel)
+    feats = torch.stack(feats, dim=0)  # [B, K, C]
+    return feats, inds
