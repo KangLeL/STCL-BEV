@@ -7,7 +7,7 @@ import torchvision
 
 from models.encoder import freeze_bn, UpsamplingConcat
 
-from .relation import PairwiseRelationHead
+from .relation import PairwiseRelationHead, GCD
 
 
 
@@ -95,10 +95,14 @@ class Decoder(nn.Module):
         )
         self.emb_scale = math.sqrt(2) * math.log(n_ids - 1)
 
-        self.relation = True
+        self.relationFlag = False
+        self.GCDFlag = True
 
-        if self.relation:
+        if self.relationFlag:
             self.pairwise_relation_head = PairwiseRelationHead(64, 128)
+
+        if self.GCDFlag:
+            self.gcd = GCD(shared_out_channels)
 
     def forward(self, x, feat_cams, bev_flip_indices=None):
         b, c, h, w = x.shape
@@ -137,23 +141,27 @@ class Decoder(nn.Module):
 
         # Extra upsample to (2xH, 2xW)
         # x = self.up_sample_2x(x)
+        if self.GCDFlag:
+            x_det, x_id = self.gcd(x)
+            # bev
+            instance_center_output = self.instance_center_head(x_det)
+            instance_offset_output = self.instance_offset_head(x_det)
+            instance_size_output = self.instance_size_head(x_det)
+            instance_rot_output = self.instance_rot_head(x_det)
+            instance_id_feat_output = self.emb_scale * F.normalize(self.id_feat_head(x_id), dim=1)
+        else:
 
-        if bev_flip_indices is not None:
-            bev_flip1_index, bev_flip2_index = bev_flip_indices
-            x[bev_flip2_index] = torch.flip(x[bev_flip2_index], [-2])  # note [-2] instead of [-3], since Y is gone now
-            x[bev_flip1_index] = torch.flip(x[bev_flip1_index], [-1])
+            # bev
+            instance_center_output = self.instance_center_head(x)
+            instance_offset_output = self.instance_offset_head(x)
+            instance_size_output = self.instance_size_head(x)
+            instance_rot_output = self.instance_rot_head(x)
+            instance_id_feat_output = self.emb_scale * F.normalize(self.id_feat_head(x), dim=1)
 
-        # bev
-        instance_center_output = self.instance_center_head(x)
-        instance_offset_output = self.instance_offset_head(x)
-        instance_size_output = self.instance_size_head(x)
-        instance_rot_output = self.instance_rot_head(x)
-        instance_id_feat_output = self.emb_scale * F.normalize(self.id_feat_head(x), dim=1)
-
-        if self.relation:
+        if self.relationFlag:
             # 1. 提取 top-K 目标
             topk_feats, topk_inds = extract_topk_features(
-                instance_id_feat_output, instance_center_output, K=60
+                instance_id_feat_output, instance_center_output, K=30
             )  # [B, K, C]
 
             # 2. 做关系建模
@@ -165,6 +173,8 @@ class Decoder(nn.Module):
             for bc in range(B):
                 id_feat_flat[bc, topk_inds[bc]] = feats_rel[bc]
             instance_id_feat_output = id_feat_flat.permute(0, 2, 1).view_as(instance_id_feat_output)
+
+
 
         # img
         img_center_output = self.img_center_head(feat_cams)  # B*S,1,H/8,W/8
