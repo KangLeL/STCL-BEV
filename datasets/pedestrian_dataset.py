@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 
 from datasets.wildtrack_dataset import Wildtrack
 from utils import geom, basic, vox
+import cv2
 
 
 class PedestrianDataset(VisionDataset):
@@ -65,6 +66,8 @@ class PedestrianDataset(VisionDataset):
 
         self.calibration = {}
         self.setup()
+
+        self.gridMask = True
 
     def setup(self):
         intrinsic = torch.tensor(np.stack(self.base.intrinsic_matrices, axis=0), dtype=torch.float32)  # S,3,3
@@ -264,11 +267,15 @@ class PedestrianDataset(VisionDataset):
 
     def __getitem__(self, index):
         frame = list(self.world_gt.keys())[index]
-        cameras = list(range(self.num_cam))  # TODO: cam dropout?
+        cameras = list(range(self.num_cam))
 
         # images
         imgs, intrins, extrins, centers_img, offsets_img, sizes_img, skeletons_img, pids_img, valids_img = \
             self.get_image_data(index, cameras)
+
+        if self.is_train:
+            if self.gridMask:
+                imgs = torch.stack([gridmask(img) for img in imgs])
 
         worldcoord_from_worldgrid = torch.eye(4)
         worldcoord_from_worldgrid2d = torch.tensor(self.base.worldcoord_from_worldgrid_mat, dtype=torch.float32)
@@ -339,3 +346,53 @@ class PedestrianDataset(VisionDataset):
         }
 
         return item, target
+
+
+def gridmask(img, d1=96, d2=224, rotate=10, ratio=0.6, mode=0, prob=0.5):
+    """
+    Args:
+        img (Tensor): C×H×W 的图像张量 (范围 0~1)
+        d1, d2 (int): 网格间距范围
+        rotate (float): 随机旋转角度
+        ratio (float): mask 大小占网格比例
+        mode (int): 0=mask 掉格子, 1=保留格子
+        prob (float): 应用概率
+    Returns:
+        Tensor: 应用 GridMask 后的图像
+    """
+    if np.random.rand() > prob:
+        return img
+
+    h, w = img.shape[1:3]
+    d = np.random.randint(d1, d2)
+    l = int(d * ratio + 0.5)
+
+    mask = np.ones((h, w), np.float32)
+
+    st_h = np.random.randint(d)
+    st_w = np.random.randint(d)
+
+    for i in range(-1, h // d + 1):
+        s = d * i + st_h
+        t = min(s + l, h)
+        if s < h:
+            mask[s:t, :] = 0
+
+    for i in range(-1, w // d + 1):
+        s = d * i + st_w
+        t = min(s + l, w)
+        if s < w:
+            mask[:, s:t] = 0
+
+    if rotate != 0:
+        angle = np.random.uniform(-rotate, rotate)
+        M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1)
+        mask = cv2.warpAffine(mask, M, (w, h), flags=cv2.INTER_NEAREST, borderValue=1)
+
+    mask = torch.from_numpy(mask).to(img.device)
+    mask = mask.expand_as(img)
+
+    if mode == 1:
+        mask = 1 - mask
+
+    return img * mask

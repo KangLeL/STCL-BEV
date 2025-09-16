@@ -29,7 +29,7 @@ class PairwiseRelationHead(nn.Module):
 
 
 class GCD(nn.Module):
-    def __init__(self, in_channels, reduction=4):
+    def __init__(self, in_channels, reduction=8):
         super(GCD, self).__init__()
         # GCM组件
         self.gcm = nn.Sequential(

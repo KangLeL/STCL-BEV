@@ -102,7 +102,7 @@ class Decoder(nn.Module):
             self.pairwise_relation_head = PairwiseRelationHead(64, 128)
 
         if self.GCDFlag:
-            self.gcd = GCD(shared_out_channels)
+            self.gcd = GCD(shared_out_channels, 4)
 
     def forward(self, x, feat_cams, bev_flip_indices=None):
         b, c, h, w = x.shape
