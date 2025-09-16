@@ -340,11 +340,12 @@ class JDETracker(object):
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
 
-        print('===========Frame {}=========='.format(self.frame_id))
-        print('Activated: {}'.format([track.track_id for track in activated_starcks]))
-        print('Refind: {}'.format([track.track_id for track in refind_stracks]))
-        print('Lost: {}'.format([track.track_id for track in lost_stracks]))
-        print('Removed: {}'.format([track.track_id for track in removed_stracks]))
+        if False:
+            print('===========Frame {}=========='.format(self.frame_id))
+            print('Activated: {}'.format([track.track_id for track in activated_starcks]))
+            print('Refind: {}'.format([track.track_id for track in refind_stracks]))
+            print('Lost: {}'.format([track.track_id for track in lost_stracks]))
+            print('Removed: {}'.format([track.track_id for track in removed_stracks]))
 
         return output_stracks
 

@@ -25,6 +25,8 @@ class PedestrianDataset(VisionDataset):
             bounds=(-500, 500, -320, 320, 0, 2),
             final_dim: tuple = (720, 1280),
             resize_lim: list = (0.8, 1.2),
+            use_grid_mask=False,
+            history_frames=0,
     ):
         super().__init__(base.root)
         self.base = base
@@ -67,7 +69,8 @@ class PedestrianDataset(VisionDataset):
         self.calibration = {}
         self.setup()
 
-        self.gridMask = True
+        self.gridMask = use_grid_mask and self.is_train
+        self.history_frames = history_frames
 
     def setup(self):
         intrinsic = torch.tensor(np.stack(self.base.intrinsic_matrices, axis=0), dtype=torch.float32)  # S,3,3
@@ -268,14 +271,16 @@ class PedestrianDataset(VisionDataset):
     def __getitem__(self, index):
         frame = list(self.world_gt.keys())[index]
         cameras = list(range(self.num_cam))
+        history_imgs = []
+        history_intrins = []
+        history_extrins = []
 
         # images
         imgs, intrins, extrins, centers_img, offsets_img, sizes_img, skeletons_img, pids_img, valids_img = \
             self.get_image_data(index, cameras)
 
-        if self.is_train:
-            if self.gridMask:
-                imgs = torch.stack([gridmask(img) for img in imgs])
+        if self.gridMask:
+            imgs = torch.stack([gridmask(img) for img in imgs])
 
         worldcoord_from_worldgrid = torch.eye(4)
         worldcoord_from_worldgrid2d = torch.tensor(self.base.worldcoord_from_worldgrid_mat, dtype=torch.float32)
@@ -300,6 +305,17 @@ class PedestrianDataset(VisionDataset):
             worldgrid_T_worldcoord = torch.matmul(worldgrid_T_worldcoord, augment)
             worldgrid_pts = geom.apply_4x4(augment.unsqueeze(0), worldgrid_pts)
 
+            if self.history_frames > 0:
+                que_size = self.history_frames + 1
+                index_list = list(range(index - que_size, index))
+                random.shuffle(index_list)
+                index_list = sorted(index_list[1:])
+                for i in index_list:
+                    i = max(0, i)
+                    img, intrin, extrin, _, _, _, _, _, _ = self.get_image_data(i, cameras)
+                    history_imgs.append(img)
+                    history_intrins.append(intrin)
+                    history_extrins.append(extrin)
         mem_pts = self.vox_util.Ref2Mem(worldgrid_pts, self.Y, self.Z, self.X)
         center_bev, valid_bev, pid_bev, offset_bev = self.get_bev_gt(mem_pts[0], world_pids)
 
@@ -325,6 +341,9 @@ class PedestrianDataset(VisionDataset):
             'frame': frame,
             'grid_gt': grid_gt,
             'img_gt': (gt_boxes, gt_ids),
+            'history_imgs': history_imgs,
+            'history_intrins': history_intrins,
+            'history_extrins': history_extrins,
         }
 
         target = {

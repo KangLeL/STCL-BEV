@@ -2,9 +2,14 @@ data:
   class_path: datasets.PedestrianDataModule
   init_args:
     data_dir: "/root/autodl-tmp/hukangle/mvdetr/Data/Wildtrack"
+    batch_size: 1
+    num_workers: 8
+    use_grid_mask: False
+    history_frames: 3
 model:
   resolution: [120, 2, 360]  # Y,Z,X
   bounds: [0, 1440, 0, 480, 0, 200]  # xmin,xmax,ymin,ymax,zmin,zmax
   depth: [100, 0, 2000]
   num_cameras: 7
   num_ids: 1201
+  useGCD: False

@@ -10,7 +10,6 @@ from models.encoder import Encoder_res101, Encoder_res50, Encoder_res18, Encoder
 from models.decoder import Decoder
 
 
-
 class MVDet(nn.Module):
     def __init__(self, Y, Z, X,
                  rand_flip=False,
@@ -18,7 +17,9 @@ class MVDet(nn.Module):
                  num_ids=None,
                  latent_dim=512,
                  encoder_type='res18',
-                 device=torch.device('cuda')):
+                 device=torch.device('cuda'),
+                 **kwargs
+                 ):
         super().__init__()
         assert (encoder_type in ['res101', 'res50', 'res18', 'res34', 'effb0', 'effb4', 'swin_t'])
 
@@ -71,6 +72,7 @@ class MVDet(nn.Module):
             in_channels=latent_dim,
             n_classes=2,
             n_ids=num_ids,
+            **kwargs
         )
 
         # Weights
@@ -79,20 +81,22 @@ class MVDet(nn.Module):
         self.size_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.rot_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
 
-
-    def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global):
+    def get_bev(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global):
         """
-        B = batch size, S = number of cameras, C = 3, H = img height, W = img width
-        rgb_cams: (B,S,C,H,W)
-        pix_T_cams: (B,S,4,4)
-        cams_T_global: (B,S,4,4)
-        vox_util: vox util object
-        ref_T_global: (B,4,4)
+        将多视角图像融合为全局BEV特征。
+        Args:
+            rgb_cams: (B,S,C,H,W) 输入的多视角图像
+            pix_T_cams: (B,S,4,4) 每个相机的内参矩阵
+            cams_T_global: (4,4) 每个相机到全局坐标的变换矩阵
+            vox_util: 体素工具对象
+            ref_T_global: (B,4,4) 参考坐标到全局坐标的变换矩阵
+        Returns:
+            world_features: (B,latent_dim,Y,X) 全局BEV特征
         """
         B, S, C, H, W = rgb_cams.shape
-        # reshape tensors
         __p = lambda x: utils.basic.pack_seqdim(x, B)
         __u = lambda x: utils.basic.unpack_seqdim(x, B)
+
         rgb_cams_ = __p(rgb_cams)  # B*S,3,H,W
         pix_T_cams_ = __p(pix_T_cams)  # B*S,4,4
         cams_T_global_ = __p(cams_T_global)  # B*S,4,4
@@ -101,7 +105,7 @@ class MVDet(nn.Module):
         ref_T_cams_ = torch.matmul(ref_T_global.repeat(S, 1, 1), global_T_cams_)  # B*S,4,4
         cams_T_ref_ = torch.inverse(ref_T_cams_)  # B*S,4,4
 
-        # rgb encoder
+        # 图像归一化并提取特征
         device = rgb_cams_.device
         rgb_cams_ = (rgb_cams_ - self.mean.to(device)) / self.std.to(device)  # B*S,3,H,W
         feat_cams_ = self.encoder(rgb_cams_)  # B*S,latent_dim,H/8,W/8
@@ -117,23 +121,156 @@ class MVDet(nn.Module):
         mem_T_featpix = torch.inverse(featpix_T_mem_)  # B*S,3,3
         proj_mats = mem_T_featpix  # B*S,3,3
 
-        # B*S,latent_dim,Y,X
-        world_features_ = warp_perspective(feat_cams_, proj_mats, (self.Y, self.X), align_corners=False)
-
+        # 投影到全局BEV
+        world_features_ = warp_perspective(feat_cams_, proj_mats, (self.Y, self.X),
+                                           align_corners=False)  # B*S,latent_dim,Y,X
         world_features = __u(world_features_)  # B,S,latent_dim,Y,X
+
         if self.num_cameras is None:
             world_features = self.world_conv(world_features.permute(0, 2, 1, 3, 4))
             world_features = self.world_feat(world_features.sum(2, keepdim=True))
         else:
             world_features = self.world_feat(world_features.view(B, S * self.feat2d_dim, self.Y, self.X))
 
-        # back_proj_mats = torch.inverse(proj_mats)  # B*S,3,3
-        # world_features_cam = __p(world_features.unsqueeze(1).repeat(1, S, 1, 1, 1))
-        # feat_cams_back_ = warp_perspective(world_features_cam, back_proj_mats, (Hf, Wf), align_corners=False)
-        # feat_cams_ = feat_cams_ + self.cam_out(feat_cams_back_)
+        return world_features
+
+    # def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global,
+    #             history_imgs=None, history_intrins=None, history_extrins=None):
+    #     """
+    #     B = batch size, S = number of cameras, C = 3, H = img height, W = img width
+    #     rgb_cams: (B,S,C,H,W)
+    #     pix_T_cams: (B,S,4,4)
+    #     cams_T_global: (B,S,4,4)
+    #     vox_util: vox util object
+    #     ref_T_global: (B,4,4)
+    #     """
+    #     B, S, C, H, W = rgb_cams.shape
+    #     # reshape tensors
+    #     __p = lambda x: utils.basic.pack_seqdim(x, B)
+    #     __u = lambda x: utils.basic.unpack_seqdim(x, B)
+    #     rgb_cams_ = __p(rgb_cams)  # B*S,3,H,W
+    #     pix_T_cams_ = __p(pix_T_cams)  # B*S,4,4
+    #     cams_T_global_ = __p(cams_T_global)  # B*S,4,4
+    #
+    #     global_T_cams_ = torch.inverse(cams_T_global_)  # B*S,4,4
+    #     ref_T_cams_ = torch.matmul(ref_T_global.repeat(S, 1, 1), global_T_cams_)  # B*S,4,4
+    #     cams_T_ref_ = torch.inverse(ref_T_cams_)  # B*S,4,4
+    #
+    #     # rgb encoder
+    #     device = rgb_cams_.device
+    #     rgb_cams_ = (rgb_cams_ - self.mean.to(device)) / self.std.to(device)  # B*S,3,H,W
+    #     feat_cams_ = self.encoder(rgb_cams_)  # B*S,latent_dim,H/8,W/8
+    #     _, C, Hf, Wf = feat_cams_.shape
+    #     sy = Hf / float(H)
+    #     sx = Wf / float(W)
+    #     featpix_T_cams_ = utils.geom.scale_intrinsics(pix_T_cams_, sx, sy)  # B*S,4,4
+    #
+    #     featpix_T_ref_ = torch.matmul(featpix_T_cams_[:, :3, :3], cams_T_ref_[:, :3, [0, 1, 3]])  # B*S,3,3
+    #     ref_T_mem = vox_util.get_ref_T_mem(B, self.Y, self.Z, self.X)  # B,4,4
+    #     ref_T_mem = ref_T_mem[0, [0, 1, 3]][:, [0, 1, 3]]  # 3,3
+    #     featpix_T_mem_ = torch.matmul(featpix_T_ref_, ref_T_mem)  # B*S,3,3
+    #     mem_T_featpix = torch.inverse(featpix_T_mem_)  # B*S,3,3
+    #     proj_mats = mem_T_featpix  # B*S,3,3
+    #
+    #     # B*S,latent_dim,Y,X
+    #     world_features_ = warp_perspective(feat_cams_, proj_mats, (self.Y, self.X), align_corners=False)
+    #
+    #     world_features = __u(world_features_)  # B,S,latent_dim,Y,X
+    #     if self.num_cameras is None:
+    #         world_features = self.world_conv(world_features.permute(0, 2, 1, 3, 4))
+    #         world_features = self.world_feat(world_features.sum(2, keepdim=True))
+    #     else:
+    #         world_features = self.world_feat(world_features.view(B, S * self.feat2d_dim, self.Y, self.X))
+    #
+    #     # back_proj_mats = torch.inverse(proj_mats)  # B*S,3,3
+    #     # world_features_cam = __p(world_features.unsqueeze(1).repeat(1, S, 1, 1, 1))
+    #     # feat_cams_back_ = warp_perspective(world_features_cam, back_proj_mats, (Hf, Wf), align_corners=False)
+    #     # feat_cams_ = feat_cams_ + self.cam_out(feat_cams_back_)
+    #
+    #     out_dict = self.decoder(world_features, feat_cams_,
+    #                             (self.bev_flip1_index, self.bev_flip2_index) if self.rand_flip else None)
+    #
+    #     return out_dict
+
+    def multi_view_to_bev(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global):
+        """
+        将多视角图像融合为全局 BEV 特征
+        输入:
+            rgb_cams: (B,S,3,H,W)
+            pix_T_cams: (B,S,4,4)
+            cams_T_global: (B,S,4,4)
+            vox_util: vox util object
+            ref_T_global: (B,4,4)
+        输出:
+            world_features: (B, latent_dim, Y, X) BEV 特征
+        """
+        B, S, C, H, W = rgb_cams.shape
+        __p = lambda x: utils.basic.pack_seqdim(x, B)
+        __u = lambda x: utils.basic.unpack_seqdim(x, B)
+
+        # --- 预处理 ---
+        rgb_cams_ = __p(rgb_cams)  # B*S,3,H,W
+        pix_T_cams_ = __p(pix_T_cams)  # B*S,4,4
+        cams_T_global_ = __p(cams_T_global)  # B*S,4,4
+
+        global_T_cams_ = torch.inverse(cams_T_global_)  # B*S,4,4
+        ref_T_cams_ = torch.matmul(ref_T_global.repeat(S, 1, 1), global_T_cams_)  # B*S,4,4
+        cams_T_ref_ = torch.inverse(ref_T_cams_)  # B*S,4,4
+
+        # --- RGB Encoder ---
+        device = rgb_cams_.device
+        rgb_cams_ = (rgb_cams_ - self.mean.to(device)) / self.std.to(device)
+        feat_cams_ = self.encoder(rgb_cams_)  # B*S,Cf,Hf,Wf
+        _, Cf, Hf, Wf = feat_cams_.shape
+
+        # --- intrinsics 缩放 ---
+        sy = Hf / float(H)
+        sx = Wf / float(W)
+        featpix_T_cams_ = utils.geom.scale_intrinsics(pix_T_cams_, sx, sy)  # B*S,4,4
+
+        # --- 投影矩阵 ---
+        featpix_T_ref_ = torch.matmul(featpix_T_cams_[:, :3, :3], cams_T_ref_[:, :3, [0, 1, 3]])  # B*S,3,3
+        ref_T_mem = vox_util.get_ref_T_mem(B, self.Y, self.Z, self.X)  # B,4,4
+        ref_T_mem = ref_T_mem[0, [0, 1, 3]][:, [0, 1, 3]]  # 3,3
+        featpix_T_mem_ = torch.matmul(featpix_T_ref_, ref_T_mem)  # B*S,3,3
+        mem_T_featpix = torch.inverse(featpix_T_mem_)  # B*S,3,3
+        proj_mats = mem_T_featpix
+
+        # --- 多视角投影到 BEV ---
+        world_features_ = warp_perspective(feat_cams_, proj_mats, (self.Y, self.X), align_corners=False)
+        world_features = __u(world_features_)  # B,S,Cf,Y,X
+
+        # --- 融合不同相机 ---
+        if self.num_cameras is None:
+            world_features = self.world_conv(world_features.permute(0, 2, 1, 3, 4))
+            world_features = self.world_feat(world_features.sum(2, keepdim=True))
+        else:
+            world_features = self.world_feat(world_features.view(B, S * self.feat2d_dim, self.Y, self.X))
+
+        return world_features, feat_cams_
+
+    def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global,
+                history_imgs=None, history_intrins=None, history_extrins=None):
+        world_features, feat_cams_ = self.multi_view_to_bev(
+            rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global
+        )
+
+        # get history BEV features
+        history_bev = []
+        if history_imgs is not None:
+            with torch.no_grad():
+                for history_img, history_intrin, history_extrin in zip(history_imgs, history_intrins, history_extrins):
+                    history_world_feature, _ = self.multi_view_to_bev(
+                        history_img, history_intrin, history_extrin, vox_util, ref_T_global
+                    )
+                    history_bev.append(history_world_feature)
 
 
-        out_dict = self.decoder(world_features, feat_cams_,
-                                (self.bev_flip1_index, self.bev_flip2_index) if self.rand_flip else None)
-
+        out_dict = self.decoder(
+            world_features,
+            feat_cams_,
+            (self.bev_flip1_index, self.bev_flip2_index) if self.rand_flip else None,
+            history_bev=history_bev
+        )
         return out_dict
+

@@ -30,6 +30,7 @@ class WorldTrackModel(pl.LightningModule):
             max_detections=60,
             conf_threshold=0.4,
             gating_threshold=1000,
+            useGCD=False,
     ):
         super().__init__()
         self.model_name = model_name
@@ -58,7 +59,7 @@ class WorldTrackModel(pl.LightningModule):
         # Model
         if model_name == 'mvdet':
             self.model = MVDet(self.Y, self.Z, self.X, encoder_type=self.encoder_name,
-                               num_cameras=num_cameras, num_ids=num_ids)
+                               num_cameras=num_cameras, num_ids=num_ids, useGCD=useGCD)
         else:
             raise ValueError(f'Unknown model name {self.model_name}')
 
@@ -82,6 +83,9 @@ class WorldTrackModel(pl.LightningModule):
             cams_T_global=item['extrinsic'],
             vox_util=self.vox_util,
             ref_T_global=item['ref_T_global'],
+            history_imgs=item['history_imgs'],
+            history_intrins=item['history_intrins'],
+            history_extrins=item['history_extrins'],
         )
 
     def loss(self, target, output):
@@ -158,8 +162,8 @@ class WorldTrackModel(pl.LightningModule):
             feat_img_e.flatten(2).transpose(1, 2)[valid_img_g]
         ])
         ids = self.id_head(feats)
-        reid_class_loss = self.classification_loss(ids, targets)
-        reid_contras_loss = self.contrastive_loss(feats, targets)
+        reid_class_loss = self.classification_loss(ids, targets) * 0.1
+        reid_contras_loss = self.contrastive_loss(feats, targets) * 0.5
 
         loss_dict = {
             'center_loss': center_loss,

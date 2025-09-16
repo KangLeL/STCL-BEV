@@ -12,7 +12,7 @@ from .relation import PairwiseRelationHead, GCD
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels, n_classes, n_ids):
+    def __init__(self, in_channels, n_classes, n_ids, useGCD=False):
         super().__init__()
         backbone = torchvision.models.resnet18(weights=torchvision.models.ResNet18_Weights.DEFAULT)
         freeze_bn(backbone)
@@ -94,17 +94,25 @@ class Decoder(nn.Module):
             nn.Conv2d(self.feat2d, self.reid_feat, kernel_size=1, padding=0),
         )
         self.emb_scale = math.sqrt(2) * math.log(n_ids - 1)
-
+        self.history_bev = None
+        self.spatial_context_flag = True
         self.relationFlag = False
-        self.GCDFlag = True
+        self.GCDFlag = useGCD
+
+        if self.spatial_context_flag:
+            self.fusion_conv = nn.Sequential(
+                nn.Conv2d(2 * shared_out_channels, shared_out_channels, kernel_size=3, padding=1, bias=False),
+                nn.BatchNorm2d(shared_out_channels),
+                nn.ReLU(inplace=True)
+            )
 
         if self.relationFlag:
             self.pairwise_relation_head = PairwiseRelationHead(64, 128)
 
         if self.GCDFlag:
-            self.gcd = GCD(shared_out_channels, 4)
+            self.gcd = GCD(shared_out_channels, 8)
 
-    def forward(self, x, feat_cams, bev_flip_indices=None):
+    def unet(self, x):
         b, c, h, w = x.shape
 
         # pad input
@@ -138,6 +146,31 @@ class Decoder(nn.Module):
 
         # Unpad
         x = x[..., ph // 2:h + ph // 2, pw // 2:w + pw // 2]
+        return x
+
+    def spatial_context(self, bev1, bev2):
+        # 沿通道维拼接
+        bev_cat = torch.cat([bev1, bev2], dim=1)  # [B, 2C, H, W]
+        fused = self.fusion_conv(bev_cat)  # [B, out_channels, H, W]
+        return fused
+
+
+    def forward(self, x, feat_cams, bev_flip_indices=None, history_bev=None):
+        b, c, h, w = x.shape
+        if history_bev is not None:
+            self.history_bev = None
+            with torch.no_grad():
+                for bev in history_bev:
+                    if self.history_bev is None:
+                        self.history_bev = bev
+                    else:
+                        self.history_bev = self.spatial_context(bev, self.history_bev)
+
+
+        x = self.unet(x)  # B, C, H, W
+
+        if self.spatial_context_flag and self.history_bev is not None:
+            x = self.spatial_context(x, self.history_bev)
 
         # Extra upsample to (2xH, 2xW)
         # x = self.up_sample_2x(x)
