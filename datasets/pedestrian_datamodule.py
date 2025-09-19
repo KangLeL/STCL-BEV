@@ -19,6 +19,7 @@ class PedestrianDataModule(pl.LightningDataModule):
             load_depth=False,
             use_grid_mask=False,
             history_frames=0,
+            new_augmentation=False
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -34,6 +35,7 @@ class PedestrianDataModule(pl.LightningDataModule):
         self.data_train = None
         self.useGridMask = use_grid_mask
         self.history_frames = history_frames
+        self.new_augmentation = new_augmentation
 
     def setup(self, stage: Optional[str] = None):
         if 'wildtrack' in self.dataset.lower():
@@ -51,6 +53,7 @@ class PedestrianDataModule(pl.LightningDataModule):
                 bounds=self.bounds,
                 use_grid_mask=self.useGridMask,
                 history_frames=self.history_frames,
+                new_augmentation=self.new_augmentation
             )
         if stage == 'fit' or stage == 'validate':
             self.data_val = PedestrianDataset(
@@ -80,7 +83,7 @@ class PedestrianDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            sampler=RandomPairSampler(self.data_train)
+            # sampler=RandomPairSampler(self.data_train)
         )
 
     def val_dataloader(self):

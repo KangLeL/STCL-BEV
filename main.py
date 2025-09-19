@@ -31,6 +31,8 @@ class WorldTrackModel(pl.LightningModule):
             conf_threshold=0.4,
             gating_threshold=1000,
             useGCD=False,
+            use_GTE=False,
+            fusion_type=None,
     ):
         super().__init__()
         self.model_name = model_name
@@ -59,7 +61,8 @@ class WorldTrackModel(pl.LightningModule):
         # Model
         if model_name == 'mvdet':
             self.model = MVDet(self.Y, self.Z, self.X, encoder_type=self.encoder_name,
-                               num_cameras=num_cameras, num_ids=num_ids, useGCD=useGCD)
+                               num_cameras=num_cameras, num_ids=num_ids, useGCD=useGCD, fusion_type=fusion_type,
+                               use_GTE=use_GTE)
         else:
             raise ValueError(f'Unknown model name {self.model_name}')
 
@@ -162,8 +165,8 @@ class WorldTrackModel(pl.LightningModule):
             feat_img_e.flatten(2).transpose(1, 2)[valid_img_g]
         ])
         ids = self.id_head(feats)
-        reid_class_loss = self.classification_loss(ids, targets) * 0.1
-        reid_contras_loss = self.contrastive_loss(feats, targets) * 0.5
+        reid_class_loss = self.classification_loss(ids, targets)*0.1
+        reid_contras_loss = self.contrastive_loss(feats, targets)
 
         loss_dict = {
             'center_loss': center_loss,
@@ -202,6 +205,10 @@ class WorldTrackModel(pl.LightningModule):
             self.log(f'stats/{key}', value, batch_size=B)
 
         return total_loss
+
+
+    def on_validation_epoch_start(self) -> None:
+        self.model.reset()
 
     def validation_step(self, batch, batch_idx):
         item, target = batch

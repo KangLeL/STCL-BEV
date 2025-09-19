@@ -1,7 +1,7 @@
 import math
 import os
 import json
-import random
+from numpy import random
 from operator import itemgetter
 
 import torch
@@ -27,6 +27,7 @@ class PedestrianDataset(VisionDataset):
             resize_lim: list = (0.8, 1.2),
             use_grid_mask=False,
             history_frames=0,
+            new_augmentation=False,
     ):
         super().__init__(base.root)
         self.base = base
@@ -71,6 +72,7 @@ class PedestrianDataset(VisionDataset):
 
         self.gridMask = use_grid_mask and self.is_train
         self.history_frames = history_frames
+        self.new_augmentation = new_augmentation
 
     def setup(self):
         intrinsic = torch.tensor(np.stack(self.base.intrinsic_matrices, axis=0), dtype=torch.float32)  # S,3,3
@@ -200,7 +202,7 @@ class PedestrianDataset(VisionDataset):
 
     def sample_augmentation(self):
         fH, fW = self.data_aug_conf['final_dim']
-        if self.is_train:
+        if self.is_train and not self.new_augmentation:
             resize = np.random.uniform(*self.data_aug_conf['resize_lim'])
             resize_dims = (int(fW * resize), int(fH * resize))
             newW, newH = resize_dims
@@ -246,8 +248,10 @@ class PedestrianDataset(VisionDataset):
             pix_T_cam = geom.merge_intrinsics(fx, fy, new_x0, new_y0)
             intrin = pix_T_cam.squeeze(0)  # 4,4
             img = basic.img_transform(img, resize_dims, crop)
-
-            imgs.append(F.to_tensor(img))
+            if self.is_train and not self.new_augmentation:
+                imgs.append(np.array(img, dtype=np.float32))
+            else:
+                imgs.append(img)
             intrins.append(intrin)
             extrins.append(extrin)
 
@@ -261,6 +265,16 @@ class PedestrianDataset(VisionDataset):
             skeletons.append(skeleton_img)
             pids.append(pid_img)
             valids.append(valid_img)
+        if self.is_train and self.new_augmentation:
+            imgs = augmentation(imgs)
+        imgs = [F.to_tensor(img) for img in imgs]
+
+        # if self.is_train:
+        #     for img in imgs:
+        #         if random.random() > 0.3:
+        #             continue
+        #         plt.imshow(img.permute(1, 2, 0).to(torch.uint8))
+        #         plt.show()
 
         return torch.stack(imgs), torch.stack(intrins), torch.stack(extrins), torch.stack(centers), torch.stack(
             offsets), torch.stack(sizes), torch.stack(skeletons), torch.stack(pids), torch.stack(valids)
@@ -312,10 +326,12 @@ class PedestrianDataset(VisionDataset):
                 index_list = sorted(index_list[1:])
                 for i in index_list:
                     i = max(0, i)
-                    img, intrin, extrin, _, _, _, _, _, _ = self.get_image_data(i, cameras)
-                    history_imgs.append(img)
-                    history_intrins.append(intrin)
-                    history_extrins.append(extrin)
+                    his_imgs, his_intrin, his_extrin, _, _, _, _, _, _ = self.get_image_data(i, cameras)
+                    if self.gridMask:
+                        his_imgs = torch.stack([gridmask(img) for img in his_imgs])
+                    history_imgs.append(his_imgs)
+                    history_intrins.append(his_intrin)
+                    history_extrins.append(his_extrin)
         mem_pts = self.vox_util.Ref2Mem(worldgrid_pts, self.Y, self.Z, self.X)
         center_bev, valid_bev, pid_bev, offset_bev = self.get_bev_gt(mem_pts[0], world_pids)
 
@@ -367,7 +383,7 @@ class PedestrianDataset(VisionDataset):
         return item, target
 
 
-def gridmask(img, d1=96, d2=224, rotate=10, ratio=0.6, mode=0, prob=0.5):
+def gridmask(img, d1=96, d2=224, rotate=10, ratio=0.6, mode=0, prob=0.7):
     """
     Args:
         img (Tensor): C×H×W 的图像张量 (范围 0~1)
@@ -415,3 +431,65 @@ def gridmask(img, d1=96, d2=224, rotate=10, ratio=0.6, mode=0, prob=0.5):
         mask = 1 - mask
 
     return img * mask
+
+
+def augmentation(imgs, brightness_delta=48,
+                 contrast_range=(0.3, 1.8),
+                 saturation_range=(0.2, 2.0),
+                 hue_delta=64,
+                 noise_std=0.1):
+    contrast_lower, contrast_upper = contrast_range
+    saturation_lower, saturation_upper = saturation_range
+    new_imgs = []
+    for img in imgs:
+        assert img.dtype == np.float32, \
+            'PhotoMetricDistortion needs the input image of dtype np.float32,' \
+            ' please set "to_float32=True" in "LoadImageFromFile" pipeline'
+        # random brightness
+        if random.randint(2):
+            delta = random.uniform(-brightness_delta,
+                                   brightness_delta)
+            img += delta
+
+        # mode == 0 --> do random contrast first
+        # mode == 1 --> do random contrast last
+        mode = random.randint(2)
+        if mode == 1:
+            if random.randint(2):
+                alpha = random.uniform(contrast_lower,
+                                       contrast_upper)
+                img *= alpha
+
+        # convert color from BGR to HSV
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+        # random saturation
+        if random.randint(2):
+            img[..., 1] *= random.uniform(saturation_lower,
+                                          saturation_upper)
+
+        # random hue
+        if random.randint(2):
+            img[..., 0] += random.uniform(-hue_delta, hue_delta)
+            img[..., 0][img[..., 0] > 360] -= 360
+            img[..., 0][img[..., 0] < 0] += 360
+
+        # convert color from HSV to BGR
+        img = cv2.cvtColor(img, cv2.COLOR_HSV2BGR)
+
+        # random contrast
+        if mode == 0:
+            if random.randint(2):
+                alpha = random.uniform(contrast_lower,
+                                       contrast_upper)
+                img *= alpha
+        # # ===== 新增：高斯噪声 =====
+        # if random.random() < 0.7:
+        #     noise = np.random.normal(0, noise_std * 255, img.shape).astype(np.float32)
+        #     img = np.clip(img + noise, 0, 255)
+        # randomly swap channels
+        if random.randint(2):
+            img = img[..., random.permutation(3)]
+        new_imgs.append(img)
+
+    return new_imgs

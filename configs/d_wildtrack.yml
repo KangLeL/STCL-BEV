@@ -4,8 +4,9 @@ data:
     data_dir: "/root/autodl-tmp/hukangle/mvdetr/Data/Wildtrack"
     batch_size: 1
     num_workers: 8
-    use_grid_mask: False
-    history_frames: 3
+    use_grid_mask: True
+    history_frames: 0
+    new_augmentation: False
 model:
   resolution: [120, 2, 360]  # Y,Z,X
   bounds: [0, 1440, 0, 480, 0, 200]  # xmin,xmax,ymin,ymax,zmin,zmax
@@ -13,3 +14,6 @@ model:
   num_cameras: 7
   num_ids: 1201
   useGCD: False
+  use_GTE: False
+  fusion_type: null
+

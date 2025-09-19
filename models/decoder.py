@@ -7,12 +7,14 @@ import torchvision
 
 from models.encoder import freeze_bn, UpsamplingConcat
 
-from .relation import PairwiseRelationHead, GCD
+from .ops.modules import MSDeformAttn
+
+from .relation import GTE, GCD
 
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels, n_classes, n_ids, useGCD=False):
+    def __init__(self, Y, X, in_channels, n_classes, n_ids, useGCD=False, fusion_type=None, use_GTE=False):
         super().__init__()
         backbone = torchvision.models.resnet18(weights=torchvision.models.ResNet18_Weights.DEFAULT)
         freeze_bn(backbone)
@@ -95,22 +97,29 @@ class Decoder(nn.Module):
         )
         self.emb_scale = math.sqrt(2) * math.log(n_ids - 1)
         self.history_bev = None
-        self.spatial_context_flag = True
+        self.fusion_type = fusion_type
+        self.spatial_context_flag = self.fusion_type is not None
         self.relationFlag = False
         self.GCDFlag = useGCD
-
-        if self.spatial_context_flag:
+        self.use_GTE = use_GTE
+        assert self.fusion_type in [None, 'concat', 'deformAttn']
+        if self.fusion_type == 'concat':
             self.fusion_conv = nn.Sequential(
                 nn.Conv2d(2 * shared_out_channels, shared_out_channels, kernel_size=3, padding=1, bias=False),
                 nn.BatchNorm2d(shared_out_channels),
                 nn.ReLU(inplace=True)
             )
-
-        if self.relationFlag:
-            self.pairwise_relation_head = PairwiseRelationHead(64, 128)
+        elif self.fusion_type == 'deformAttn':
+            self.self_attn = MSDeformAttn(shared_out_channels, 1, 8, 4)
 
         if self.GCDFlag:
             self.gcd = GCD(shared_out_channels, 8)
+
+        if self.use_GTE:
+            self.GTE = GTE(shared_out_channels,Y,X)
+
+
+
 
     def unet(self, x):
         b, c, h, w = x.shape
@@ -149,18 +158,24 @@ class Decoder(nn.Module):
         return x
 
     def spatial_context(self, bev1, bev2):
-        # 沿通道维拼接
-        bev_cat = torch.cat([bev1, bev2], dim=1)  # [B, 2C, H, W]
-        fused = self.fusion_conv(bev_cat)  # [B, out_channels, H, W]
-        return fused
+        if bev2 is None:
+            return bev1
+        if self.fusion_type == 'concat':
+            # 沿通道维拼接
+            bev_cat = torch.cat([bev1, bev2], dim=1)  # [B, 2C, H, W]
+            fused = self.fusion_conv(bev_cat)  # [B, out_channels, H, W]
+            return fused
 
+    def reset(self):
+        self.history_bev = None
 
-    def forward(self, x, feat_cams, bev_flip_indices=None, history_bev=None):
+    def forward(self, x, feat_cams, history_bev=None):
         b, c, h, w = x.shape
-        if history_bev is not None:
+        if history_bev and self.spatial_context_flag:
             self.history_bev = None
             with torch.no_grad():
                 for bev in history_bev:
+                    bev = self.unet(bev)
                     if self.history_bev is None:
                         self.history_bev = bev
                     else:
@@ -169,13 +184,18 @@ class Decoder(nn.Module):
 
         x = self.unet(x)  # B, C, H, W
 
-        if self.spatial_context_flag and self.history_bev is not None:
+        if self.spatial_context_flag:
             x = self.spatial_context(x, self.history_bev)
+            self.history_bev = x.detach()
+
 
         # Extra upsample to (2xH, 2xW)
         # x = self.up_sample_2x(x)
+
         if self.GCDFlag:
             x_det, x_id = self.gcd(x)
+            if self.use_GTE:
+                x_id = self.GTE(x_id)
             # bev
             instance_center_output = self.instance_center_head(x_det)
             instance_offset_output = self.instance_offset_head(x_det)
@@ -206,8 +226,6 @@ class Decoder(nn.Module):
             for bc in range(B):
                 id_feat_flat[bc, topk_inds[bc]] = feats_rel[bc]
             instance_id_feat_output = id_feat_flat.permute(0, 2, 1).view_as(instance_id_feat_output)
-
-
 
         # img
         img_center_output = self.img_center_head(feat_cams)  # B*S,1,H/8,W/8
