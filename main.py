@@ -165,7 +165,7 @@ class WorldTrackModel(pl.LightningModule):
             feat_img_e.flatten(2).transpose(1, 2)[valid_img_g]
         ])
         ids = self.id_head(feats)
-        reid_class_loss = self.classification_loss(ids, targets)*0.1
+        reid_class_loss = self.classification_loss(ids, targets)
         reid_contras_loss = self.contrastive_loss(feats, targets)
 
         loss_dict = {

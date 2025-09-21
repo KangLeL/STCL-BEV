@@ -248,7 +248,7 @@ class PedestrianDataset(VisionDataset):
             pix_T_cam = geom.merge_intrinsics(fx, fy, new_x0, new_y0)
             intrin = pix_T_cam.squeeze(0)  # 4,4
             img = basic.img_transform(img, resize_dims, crop)
-            if self.is_train and not self.new_augmentation:
+            if self.new_augmentation:
                 imgs.append(np.array(img, dtype=np.float32))
             else:
                 imgs.append(img)
@@ -383,7 +383,7 @@ class PedestrianDataset(VisionDataset):
         return item, target
 
 
-def gridmask(img, d1=96, d2=224, rotate=10, ratio=0.6, mode=0, prob=0.7):
+def gridmask(img, d1=96, d2=224, rotate=10, ratio=0.6, mode=0, prob=0.6):
     """
     Args:
         img (Tensor): C×H×W 的图像张量 (范围 0~1)

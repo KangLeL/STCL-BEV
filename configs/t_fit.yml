@@ -1,9 +1,9 @@
 seed_everything: 1337
+
 trainer:
   accelerator: gpu
   devices: 1
-  max_epochs: 45
-
+  max_epochs: 55
   accumulate_grad_batches: 8
   gradient_clip_val: 0.5
   check_val_every_n_epoch: 1
@@ -11,7 +11,7 @@ trainer:
   callbacks:
     - class_path: LearningRateMonitor
       init_args:
-        logging_interval: step
+        logging_interval: epoch
     - class_path: ModelCheckpoint
       init_args:
         monitor: val_loss
