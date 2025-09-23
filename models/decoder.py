@@ -11,10 +11,13 @@ from .ops.modules import MSDeformAttn
 
 from .relation import GTE, GCD
 
+from .gnn import GNN
+
 
 
 class Decoder(nn.Module):
-    def __init__(self, Y, X, in_channels, n_classes, n_ids, useGCD=False, fusion_type=None, use_GTE=False):
+    def __init__(self, Y, X, in_channels, n_classes, n_ids, useGCD=False, fusion_type=None, use_GTE=False, gnn_type=None,
+                 gnn_layers=0):
         super().__init__()
         backbone = torchvision.models.resnet18(weights=torchvision.models.ResNet18_Weights.DEFAULT)
         freeze_bn(backbone)
@@ -33,6 +36,8 @@ class Decoder(nn.Module):
         self.up3_skip = UpsamplingConcat(256 + 128, 256)
         self.up2_skip = UpsamplingConcat(256 + 64, 256)
         self.up1_skip = UpsamplingConcat(256 + in_channels, shared_out_channels)
+
+        self.norm = nn.BatchNorm2d(shared_out_channels)
 
         # bev
         self.instance_offset_head = nn.Sequential(
@@ -96,12 +101,17 @@ class Decoder(nn.Module):
             nn.Conv2d(self.feat2d, self.reid_feat, kernel_size=1, padding=0),
         )
         self.emb_scale = math.sqrt(2) * math.log(n_ids - 1)
+
         self.history_bev = None
+        self.pre_valid_bev = None
+
         self.fusion_type = fusion_type
         self.spatial_context_flag = self.fusion_type is not None
         self.relationFlag = False
         self.GCDFlag = useGCD
         self.use_GTE = use_GTE
+        self.gnn_type = gnn_type
+        self.gnn_layers = gnn_layers
         assert self.fusion_type in [None, 'concat', 'deformAttn']
         if self.fusion_type == 'concat':
             self.fusion_conv = nn.Sequential(
@@ -117,6 +127,12 @@ class Decoder(nn.Module):
 
         if self.use_GTE:
             self.GTE = GTE(shared_out_channels,Y,X)
+
+        if self.gnn_type is not None and self.gnn_layers > 0:
+            self.gnn = GNN(shared_out_channels, shared_out_channels, hidden_ch=shared_out_channels, num_layers=self.gnn_layers,
+                           cnn_type=self.gnn_type, edge_type='local_fc', dropout=0.1)
+
+
 
 
 
@@ -168,8 +184,9 @@ class Decoder(nn.Module):
 
     def reset(self):
         self.history_bev = None
+        self.pre_valid_bev = None
 
-    def forward(self, x, feat_cams, history_bev=None):
+    def forward(self, x, feat_cams, history_bev=None, valid_bev=None):
         b, c, h, w = x.shape
         if history_bev and self.spatial_context_flag:
             self.history_bev = None
@@ -183,6 +200,18 @@ class Decoder(nn.Module):
 
 
         x = self.unet(x)  # B, C, H, W
+
+        x = self.norm(x)
+        x = F.relu(x)
+
+        if self.gnn_layers > 0 and self.gnn_type is not None:
+            if self.history_bev is None:
+                self.history_bev = x.detach()
+                self.pre_valid_bev = valid_bev
+            else:
+                x = self.gnn(x, self.pre_valid_bev, self.history_bev)
+                self.history_bev = x.detach()
+                self.pre_valid_bev = valid_bev
 
         if self.spatial_context_flag:
             x = self.spatial_context(x, self.history_bev)

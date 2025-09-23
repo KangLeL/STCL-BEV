@@ -11,9 +11,12 @@ model:
   resolution: [120, 2, 360]  # Y,Z,X
   bounds: [0, 1440, 0, 480, 0, 200]  # xmin,xmax,ymin,ymax,zmin,zmax
   depth: [100, 0, 2000]
+  learning_rate: 1e-3
   num_cameras: 7
   num_ids: 1201
   useGCD: False
   use_GTE: False
   fusion_type: null
+  gnn_type: 'GraphConv'
+  gnn_layers: 1
 

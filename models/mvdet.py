@@ -203,7 +203,7 @@ class MVDet(nn.Module):
         return world_features, feat_cams_
 
     def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global,
-                history_imgs=None, history_intrins=None, history_extrins=None):
+                history_imgs=None, history_intrins=None, history_extrins=None, valid_bev=None):
         world_features, feat_cams_ = self.multi_view_to_bev(
             rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global
         )
@@ -224,7 +224,8 @@ class MVDet(nn.Module):
         out_dict = self.decoder(
             world_features,
             feat_cams_,
-            history_bev=history_bev
+            history_bev=history_bev,
+            valid_bev=valid_bev
         )
         return out_dict
 

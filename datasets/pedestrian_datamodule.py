@@ -83,7 +83,8 @@ class PedestrianDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            sampler=RandomPairSampler(self.data_train)
+            shuffle=True,
+            # sampler=RandomPairSampler(self.data_train)
         )
 
     def val_dataloader(self):
