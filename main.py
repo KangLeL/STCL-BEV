@@ -35,6 +35,8 @@ class WorldTrackModel(pl.LightningModule):
             fusion_type=None,
             gnn_type=None,
             gnn_layers=0,
+            use_deformable=False,
+            use_Temporal=False,
     ):
         super().__init__()
         self.model_name = model_name
@@ -64,7 +66,8 @@ class WorldTrackModel(pl.LightningModule):
         if model_name == 'mvdet':
             self.model = MVDet(self.Y, self.Z, self.X, encoder_type=self.encoder_name,
                                num_cameras=num_cameras, num_ids=num_ids, useGCD=useGCD, fusion_type=fusion_type,
-                               use_GTE=use_GTE, gnn_type=gnn_type, gnn_layers=gnn_layers)
+                               use_GTE=use_GTE, gnn_type=gnn_type, gnn_layers=gnn_layers, use_deformable=use_deformable,
+                               use_Temporal=use_Temporal)
         else:
             raise ValueError(f'Unknown model name {self.model_name}')
 
@@ -72,6 +75,7 @@ class WorldTrackModel(pl.LightningModule):
         self.scene_centroid = torch.tensor(scene_centroid, device=self.device).reshape([1, 3])
         self.vox_util = vox.VoxelUtil(self.Y, self.Z, self.X, scene_centroid=self.scene_centroid, bounds=self.bounds)
         self.save_hyperparameters()
+        self.pre_valid_bev = None
 
     def forward(self, item):
         """
@@ -168,8 +172,8 @@ class WorldTrackModel(pl.LightningModule):
             feat_img_e.flatten(2).transpose(1, 2)[valid_img_g]
         ])
         ids = self.id_head(feats)
-        reid_class_loss = self.classification_loss(ids, targets)*0.1
-        reid_contras_loss = self.contrastive_loss(feats, targets)*0.5
+        reid_class_loss = self.classification_loss(ids, targets)*0.2
+        reid_contras_loss = self.contrastive_loss(feats, targets)*0.8
 
         loss_dict = {
             'center_loss': center_loss,
@@ -196,9 +200,11 @@ class WorldTrackModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         item, target = batch
-        item['valid_bev'] = target['valid_bev']
+        item['valid_bev'] = self.pre_valid_bev
 
         output = self(item)
+
+        self.pre_valid_bev = target['valid_bev'].detach()
 
         total_loss, loss_dict, stats_dict = self.loss(target, output)
 
@@ -213,15 +219,19 @@ class WorldTrackModel(pl.LightningModule):
 
     def on_train_epoch_start(self) -> None:
         self.model.reset()
+        self.pre_valid_bev = None
 
     def on_validation_epoch_start(self) -> None:
         self.model.reset()
+        self.pre_valid_bev = None
 
     def validation_step(self, batch, batch_idx):
         item, target = batch
-        item['valid_bev'] = target['valid_bev']
+        item['valid_bev'] = self.pre_valid_bev
 
         output = self(item)
+
+        self.pre_valid_bev = target['valid_bev'].detach()
 
         if batch_idx % 100 == 0:
             self.plot_data(target, output, batch_idx)
@@ -237,6 +247,7 @@ class WorldTrackModel(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         item, target = batch
+        item['valid_bev'] = self.pre_valid_bev
         output = self(item)
 
         ref_T_global = item['ref_T_global']
@@ -249,10 +260,10 @@ class WorldTrackModel(pl.LightningModule):
         rot_e = output['instance_rot']
         id_e = output['instance_id_feat']
 
-        xy_e, scores_e, ids_e, sizes_e, _ = decode.decoder(
+        xy_e, scores_e, ids_e, sizes_e, _, center_e_nms = decode.decoder(
             basic._sigmoid(center_e), offset_e, size_e, id_e, rz_e=rot_e, K=self.max_detections
         )
-
+        self.pre_valid_bev = center_e_nms > self.conf_threshold
         # moda & modp
         mem_xyz = torch.cat((xy_e, torch.zeros_like(scores_e)), dim=2)  # B,K,3 [x_mem, y_mem, 0]
         ref_xyz = self.vox_util.Mem2Ref(mem_xyz, self.Y, self.Z, self.X)

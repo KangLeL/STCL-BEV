@@ -17,6 +17,8 @@ model:
   useGCD: False
   use_GTE: False
   fusion_type: null
-  gnn_type: 'GraphConv'
-  gnn_layers: 1
+  gnn_type: null
+  gnn_layers: 0
+  use_deformable: True
+  use_Temporal: False
 

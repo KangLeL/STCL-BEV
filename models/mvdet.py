@@ -9,6 +9,11 @@ from kornia.geometry.transform.imgwarp import warp_perspective
 from models.encoder import Encoder_res101, Encoder_res50, Encoder_res18, Encoder_eff, Encoder_swin_t, Encoder_res34
 from models.decoder import Decoder
 
+from .deformerable import DeformTransWorldFeat, create_reference_map
+
+
+
+
 
 class MVDet(nn.Module):
     def __init__(self, Y, Z, X,
@@ -18,6 +23,8 @@ class MVDet(nn.Module):
                  latent_dim=512,
                  encoder_type='res18',
                  device=torch.device('cuda'),
+                 use_deformable=False,
+                 use_Temporal=False,
                  **kwargs
                  ):
         super().__init__()
@@ -25,6 +32,10 @@ class MVDet(nn.Module):
 
         self.Y, self.Z, self.X = Y, Z, X
         self.rand_flip = rand_flip
+
+        if use_deformable:
+            latent_dim = 128
+
         self.latent_dim = latent_dim
         self.encoder_type = encoder_type
         self.num_cameras = num_cameras
@@ -83,6 +94,13 @@ class MVDet(nn.Module):
         self.offset_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.size_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.rot_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        self.use_deformable = use_deformable
+        if use_deformable:
+            downsample = 2
+            n_points = 4
+            reference_points = create_reference_map((Y, X), n_points, n_cam=num_cameras, downsample=downsample).repeat([num_cameras, 1, 1, 1])
+            self.deformerable = DeformTransWorldFeat(num_cameras, (Y, X), self.feat2d_dim, hidden_dim=latent_dim, n_points=n_points,
+                                                     stride=downsample, reference_points=reference_points, use_Temporal=use_Temporal)
 
     # def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global,
     #             history_imgs=None, history_intrins=None, history_extrins=None):
@@ -194,7 +212,9 @@ class MVDet(nn.Module):
         world_features = __u(world_features_)  # B,S,Cf,Y,X
 
         # --- 融合不同相机 ---
-        if self.num_cameras is None:
+        if self.use_deformable:
+            world_features = self.deformerable(world_features)
+        elif self.num_cameras is None:
             world_features = self.world_conv(world_features.permute(0, 2, 1, 3, 4))
             world_features = self.world_feat(world_features.sum(2, keepdim=True))
         else:
@@ -225,7 +245,7 @@ class MVDet(nn.Module):
             world_features,
             feat_cams_,
             history_bev=history_bev,
-            valid_bev=valid_bev
+            pre_valid_bev=valid_bev
         )
         return out_dict
 

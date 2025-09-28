@@ -11,7 +11,7 @@ from .ops.modules import MSDeformAttn
 
 from .relation import GTE, GCD
 
-from .gnn import GNN
+from .gnn import GNN, GNN_GCD
 
 
 
@@ -37,7 +37,7 @@ class Decoder(nn.Module):
         self.up2_skip = UpsamplingConcat(256 + 64, 256)
         self.up1_skip = UpsamplingConcat(256 + in_channels, shared_out_channels)
 
-        self.norm = nn.BatchNorm2d(shared_out_channels)
+
 
         # bev
         self.instance_offset_head = nn.Sequential(
@@ -103,7 +103,6 @@ class Decoder(nn.Module):
         self.emb_scale = math.sqrt(2) * math.log(n_ids - 1)
 
         self.history_bev = None
-        self.pre_valid_bev = None
 
         self.fusion_type = fusion_type
         self.spatial_context_flag = self.fusion_type is not None
@@ -123,18 +122,15 @@ class Decoder(nn.Module):
             self.self_attn = MSDeformAttn(shared_out_channels, 1, 8, 4)
 
         if self.GCDFlag:
-            self.gcd = GCD(shared_out_channels, 8)
-
+            # self.gcd = GCD(shared_out_channels, 8)
+            self.gcd = GNN_GCD(shared_out_channels, shared_out_channels)
         if self.use_GTE:
             self.GTE = GTE(shared_out_channels,Y,X)
 
         if self.gnn_type is not None and self.gnn_layers > 0:
+            self.norm = nn.BatchNorm2d(shared_out_channels)
             self.gnn = GNN(shared_out_channels, shared_out_channels, hidden_ch=shared_out_channels, num_layers=self.gnn_layers,
-                           cnn_type=self.gnn_type, edge_type='local_fc', dropout=0.1)
-
-
-
-
+                           cnn_type=self.gnn_type, edge_type='local', dropout=0.1)
 
 
     def unet(self, x):
@@ -184,9 +180,8 @@ class Decoder(nn.Module):
 
     def reset(self):
         self.history_bev = None
-        self.pre_valid_bev = None
 
-    def forward(self, x, feat_cams, history_bev=None, valid_bev=None):
+    def forward(self, x, feat_cams, history_bev=None, pre_valid_bev=None):
         b, c, h, w = x.shape
         if history_bev and self.spatial_context_flag:
             self.history_bev = None
@@ -199,19 +194,15 @@ class Decoder(nn.Module):
                         self.history_bev = self.spatial_context(bev, self.history_bev)
 
 
-        x = self.unet(x)  # B, C, H, W
-
-        x = self.norm(x)
-        x = F.relu(x)
-
+        # x = self.unet(x)  # B, C, H, W
         if self.gnn_layers > 0 and self.gnn_type is not None:
+            x = self.norm(x)
+            x = F.relu(x)
             if self.history_bev is None:
                 self.history_bev = x.detach()
-                self.pre_valid_bev = valid_bev
             else:
-                x = self.gnn(x, self.pre_valid_bev, self.history_bev)
+                x = self.gnn(x, pre_valid_bev, self.history_bev)
                 self.history_bev = x.detach()
-                self.pre_valid_bev = valid_bev
 
         if self.spatial_context_flag:
             x = self.spatial_context(x, self.history_bev)
@@ -222,14 +213,17 @@ class Decoder(nn.Module):
         # x = self.up_sample_2x(x)
 
         if self.GCDFlag:
-            x_det, x_id = self.gcd(x)
-            if self.use_GTE:
-                x_id = self.GTE(x_id)
+            # x_det, x_id = self.gcd(x)
+            # if self.use_GTE:
+            #     x_id = self.GTE(x_id)
             # bev
-            instance_center_output = self.instance_center_head(x_det)
-            instance_offset_output = self.instance_offset_head(x_det)
-            instance_size_output = self.instance_size_head(x_det)
-            instance_rot_output = self.instance_rot_head(x_det)
+            instance_center_output = self.instance_center_head(x)
+            instance_offset_output = self.instance_offset_head(x)
+            instance_size_output = self.instance_size_head(x)
+            instance_rot_output = self.instance_rot_head(x)
+
+            x_id = self.gcd(x, instance_center_output)
+
             instance_id_feat_output = self.emb_scale * F.normalize(self.id_feat_head(x_id), dim=1)
         else:
 

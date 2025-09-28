@@ -3,7 +3,7 @@ seed_everything: 1337
 trainer:
   accelerator: gpu
   devices: 1
-  max_epochs: 55
+  max_epochs: 50
   accumulate_grad_batches: 8
   gradient_clip_val: 0.5
   check_val_every_n_epoch: 1

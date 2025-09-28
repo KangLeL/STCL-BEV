@@ -33,6 +33,8 @@ class MultiviewX(VisionDataset):
             if cam >= self.num_cam:
                 continue
             for fname in sorted(os.listdir(os.path.join(self.root, 'Image_subsets', camera_folder))):
+                if fname.startswith('.'):
+                    continue
                 frame = int(fname.split('.')[0])
                 if frame in frame_range:
                     img_fpaths[cam][frame] = os.path.join(self.root, 'Image_subsets', camera_folder, fname)

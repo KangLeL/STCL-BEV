@@ -266,7 +266,8 @@ class JDETracker(object):
         dists = matching.embedding_distance(strack_pool, detections)
         dists = matching.fuse_motion(self.kalman_filter, dists, strack_pool, detections,
                                      gating_threshold=self.gating_threshold)
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.5)
+        # matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.5)
+        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=50)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]

@@ -61,7 +61,7 @@ def decoder(center_e, offset_e, size_e, id_e, rz_e=None, K=60):
     ys = ys.view(batch, K, 1) + offset[:, :, 1:2]
     xy = torch.cat((xs, ys), dim=2)  # batch,K,2
 
-    return xy.detach(), scores.detach(), id.detach(), size.detach(), rz.detach()
+    return xy.detach(), scores.detach(), id.detach(), size.detach(), rz.detach(), center_e.detach()
 
 
 def _topk(scores, K=40):

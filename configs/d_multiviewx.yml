@@ -1,7 +1,10 @@
 data:
   class_path: datasets.PedestrianDataModule
   init_args:
-    data_dir: "/usr/home/tee/Developer/datasets/MultiviewX"
+    data_dir: "/root/autodl-tmp/hukangle/Data/MultiviewX"
+    batch_size: 1
+    num_workers: 8
+    use_grid_mask: True
 model:
   resolution: [160, 2, 250]  # Y,Z,X
   bounds: [0, 1000, 0, 640, 0, 2]  # xmin,xmax,ymin,ymax,zmin,zmax
@@ -9,3 +12,4 @@ model:
   num_cameras: 6
   num_ids: 350  # id: 0~349
   gating_threshold: 30000
+  use_deformable: True

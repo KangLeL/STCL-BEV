@@ -149,16 +149,38 @@ def gate_cost_matrix(kf, cost_matrix, tracks, detections, only_position=False):
     return cost_matrix
 
 
-def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_=0.98, gating_threshold=1000):
+def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_=0.20, gating_threshold=40):
     if cost_matrix.size == 0:
         return cost_matrix
     gating_dim = 2 if only_position else 4
+
     # gating_threshold = kalman_filter.chi2inv95[gating_dim]
     # gating_threshold = 1000
     measurements = np.asarray([det.to_xyah() for det in detections])
+    # for row, track in enumerate(tracks):
+    #     gating_distance = kf.gating_distance(
+    #         track.mean, track.covariance, measurements, only_position, metric='maha')
+    #     cost_matrix[row, gating_distance > gating_threshold] = np.inf
+    #     cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance * 0.1
+
+    gating_threshold = 50
     for row, track in enumerate(tracks):
-        gating_distance = kf.gating_distance(
-            track.mean, track.covariance, measurements, only_position, metric='maha')
-        cost_matrix[row, gating_distance > gating_threshold] = np.inf
-        cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance * 0.1
+        # 轨迹中心点 (x, y)
+        track_xy = track.mean[:2]
+
+        # 所有检测中心点 (x, y)
+        det_xy = measurements[:, :2]
+
+        # 欧式距离
+        euclidean_distance = np.linalg.norm(det_xy - track_xy[None, :], axis=1)
+
+        # gating: 超过阈值就置为无穷大
+        cost_matrix[row, euclidean_distance > gating_threshold] = np.inf
+
+        # 融合 cost：IOU cost + 欧式距离
+        cost_matrix[row] = (
+                lambda_ * cost_matrix[row] +
+                (1 - lambda_) * euclidean_distance
+        )
+
     return cost_matrix
