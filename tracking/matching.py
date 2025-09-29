@@ -149,13 +149,11 @@ def gate_cost_matrix(kf, cost_matrix, tracks, detections, only_position=False):
     return cost_matrix
 
 
-def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_=0.2, gating_threshold=40):
+def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_=0.7, gating_threshold=40):
     if cost_matrix.size == 0:
         return cost_matrix
-    # gating_dim = 2 if only_position else 4
-    #
-    # gating_threshold = kalman_filter.chi2inv95[gating_dim]
-    # gating_threshold = 1000
+
+    gating_threshold = 50
     measurements = np.asarray([det.to_xyah() for det in detections])
     # for row, track in enumerate(tracks):
     #     gating_distance = kf.gating_distance(
@@ -163,7 +161,6 @@ def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_
     #     cost_matrix[row, gating_distance > gating_threshold] = np.inf
     #     cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance * 0.1
 
-    gating_threshold = 50
     for row, track in enumerate(tracks):
         # 轨迹中心点 (x, y)
         track_xy = track.mean[:2]

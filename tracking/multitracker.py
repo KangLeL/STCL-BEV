@@ -74,17 +74,17 @@ class STrack(BaseTrack):
         self.smooth_feat = None
         self.update_features(temp_feat)
         self.features = deque([], maxlen=buffer_size)
-        self.alpha = 0.9
+        self.alpha = 0.7
 
     def update_features(self, feat):
-        feat /= np.linalg.norm(feat)
+        # feat /= np.linalg.norm(feat)
         self.curr_feat = feat
         if self.smooth_feat is None:
             self.smooth_feat = feat
         else:
             self.smooth_feat = self.alpha * self.smooth_feat + (1 - self.alpha) * feat
         self.features.append(feat)
-        self.smooth_feat /= np.linalg.norm(self.smooth_feat)
+        # self.smooth_feat /= np.linalg.norm(self.smooth_feat)
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -266,7 +266,7 @@ class JDETracker(object):
         dists = matching.embedding_distance(strack_pool, detections)
         dists = matching.fuse_motion(self.kalman_filter, dists, strack_pool, detections,
                                      gating_threshold=self.gating_threshold)
-        # matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.5)
+        # matches, u_track, u_detection = matching.linear_assignment(dists, thresh=1)
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=50)
 
         for itracked, idet in matches:

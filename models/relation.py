@@ -2,11 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .ops.modules.ms_deform_attn import MSDeformAttn
+
+
 class DeformableMHAttention(nn.Module):
     """
     Deformable Multi-Head Attention (DMHA).
     基于 feature map 的稀疏采样版本。
     """
+
     def __init__(self, d_model, nhead=4, num_keys=9):
         super().__init__()
         assert d_model % nhead == 0
@@ -21,7 +24,7 @@ class DeformableMHAttention(nn.Module):
 
         # offsets + attention weights per head
         self.offset_mlp = nn.Linear(d_model, 2 * nhead * num_keys)
-        self.attn_mlp   = nn.Linear(d_model, nhead * num_keys)
+        self.attn_mlp = nn.Linear(d_model, nhead * num_keys)
 
         # output projection
         self.out_proj = nn.Linear(d_model, d_model)
@@ -61,11 +64,11 @@ class DeformableMHAttention(nn.Module):
         sampling_grids = base_grid + offsets  # (B,S,nhead,num_keys,2)
 
         # reshape to feed grid_sample
-        feat_map = V.permute(0, 2, 1, 3).contiguous().view(B*self.nhead, H, W, self.head_dim)
+        feat_map = V.permute(0, 2, 1, 3).contiguous().view(B * self.nhead, H, W, self.head_dim)
         feat_map = feat_map.permute(0, 3, 1, 2)  # (B*nhead, dim, H, W)
 
-        grids = sampling_grids.view(B*self.nhead, S*self.num_keys, 2)
-        grids = grids.view(B*self.nhead, H, W, self.num_keys, 2)  # reshape per location
+        grids = sampling_grids.view(B * self.nhead, S * self.num_keys, 2)
+        grids = grids.view(B * self.nhead, H, W, self.num_keys, 2)  # reshape per location
 
         # 为简化：直接用 scatter/gather 实现，或者近似用全局 attn (工程化时换更高效的 CUDA op)
         # 这里我直接近似实现：取 base+offset 对应的索引最近点（可优化）
@@ -73,7 +76,7 @@ class DeformableMHAttention(nn.Module):
         # 直接用 bilinear 插值
         sampled = F.grid_sample(
             feat_map,
-            sampling_grids.view(B*self.nhead, S*self.num_keys, 1, 2),
+            sampling_grids.view(B * self.nhead, S * self.num_keys, 1, 2),
             align_corners=True
         )  # (B*nhead, dim, S*num_keys, 1)
 
@@ -92,7 +95,7 @@ class DeformableMHAttention(nn.Module):
 class DeformableTransformerBlock(nn.Module):
     def __init__(self, d_model, Y, X, dim_ff=256, dropout=0.1, n_points=4):
         super().__init__()
-        self.attn = MSDeformAttn(d_model,n_levels=4, n_heads=8, n_points=n_points)
+        self.attn = MSDeformAttn(d_model, n_levels=4, n_heads=8, n_points=n_points)
         self.norm1 = nn.LayerNorm(d_model)
         self.ff = nn.Sequential(
             nn.Linear(d_model, dim_ff),
@@ -106,10 +109,9 @@ class DeformableTransformerBlock(nn.Module):
         self.ref = torch.stack((ref_x, ref_y), -1).reshape([-1, 2])  # (Y*X,2)
         self.ref[:, 0] /= X
         self.ref[:, 1] /= Y
-        self.ref = self.ref[:, None, None,:].expand(-1, -1, n_points, -1)
+        self.ref = self.ref[:, None, None, :].expand(-1, -1, n_points, -1)
         self.input_spatial_shapes = torch.tensor([[Y, X]], dtype=torch.long)
         self.input_level_start_index = torch.tensor([0], dtype=torch.long)
-
 
     def forward(self, x):
         # deformable attention
@@ -131,6 +133,7 @@ class GTE(nn.Module):
     """
     GTE with deformable attention replacing Transformer attention.
     """
+
     def __init__(self, in_ch, Y, X, num_layers=1, dim_ff=256):
         super().__init__()
         self.in_ch = in_ch

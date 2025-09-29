@@ -267,7 +267,7 @@ class GNN(nn.Module):
 
 
 class GNN_GCD(nn.Module):
-    def __init__(self,in_dim, out_dim, num_layers=2, cnn_type='EdgeConv',dropout=0.1):
+    def __init__(self,in_dim, out_dim, num_layers=2, cnn_type='GATConv',dropout=0.1):
         super().__init__()
         self.in_dim = in_dim
         self.out_dim = out_dim

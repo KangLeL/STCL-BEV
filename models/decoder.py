@@ -122,8 +122,8 @@ class Decoder(nn.Module):
             self.self_attn = MSDeformAttn(shared_out_channels, 1, 8, 4)
 
         if self.GCDFlag:
-            # self.gcd = GCD(shared_out_channels, 8)
-            self.gcd = GNN_GCD(shared_out_channels, shared_out_channels)
+            self.gcd = GCD(shared_out_channels, 8)
+            # self.gcd = GNN_GCD(shared_out_channels, shared_out_channels)
         if self.use_GTE:
             self.GTE = GTE(shared_out_channels,Y,X)
 
@@ -213,15 +213,16 @@ class Decoder(nn.Module):
         # x = self.up_sample_2x(x)
 
         if self.GCDFlag:
-            # x_det, x_id = self.gcd(x)
+            x_det, x_id = self.gcd(x)
             # if self.use_GTE:
             #     x_id = self.GTE(x_id)
             # bev
-            instance_center_output = self.instance_center_head(x)
-            instance_offset_output = self.instance_offset_head(x)
-            instance_size_output = self.instance_size_head(x)
-            instance_rot_output = self.instance_rot_head(x)
-            x_id = self.gcd(x, instance_center_output)
+            instance_center_output = self.instance_center_head(x_det)
+            instance_offset_output = self.instance_offset_head(x_det)
+            instance_size_output = self.instance_size_head(x_det)
+            instance_rot_output = self.instance_rot_head(x_det)
+            # x_id = self.gcd(x, instance_center_output)
+            # x_id = self.gcd(x)
             instance_id_feat_output = self.emb_scale * F.normalize(self.id_feat_head(x_id), dim=1)
         else:
             # bev

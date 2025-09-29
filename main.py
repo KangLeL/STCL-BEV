@@ -11,9 +11,11 @@ from models import MVDet
 from models.loss import FocalLoss, compute_rot_loss
 from tracking.multitracker import JDETracker
 from utils import vox, basic, decode
+from utils.reidtool import IDManager
 from evaluation.mod import modMetricsCalculator
 from evaluation.mot_bev import mot_metrics_pedestrian
 from nuscenes.eval.common.config import config_factory
+
 
 class WorldTrackModel(pl.LightningModule):
     def __init__(
@@ -56,6 +58,7 @@ class WorldTrackModel(pl.LightningModule):
         self.classification_loss = torch.nn.CrossEntropyLoss()
         self.contrastive_loss = SupConLoss()
         self.use_pre_id_feat = use_pre_id_feat
+        self.id_manager = IDManager(history_size=0, momentum=0.7)
 
         # Test
         self.moda_gt_list, self.moda_pred_list = [], []
@@ -79,8 +82,9 @@ class WorldTrackModel(pl.LightningModule):
         self.vox_util = vox.VoxelUtil(self.Y, self.Z, self.X, scene_centroid=self.scene_centroid, bounds=self.bounds)
         self.save_hyperparameters()
         self.pre_valid_bev = None
-        self.pre_id_feat = None
-        self.pre_id_target = None
+        # self.moment = 0.8
+        # self.pre_id_feat = None
+        # self.pre_id_target = None
         self.pre_index = -2
         self.current_index = None
 
@@ -182,14 +186,19 @@ class WorldTrackModel(pl.LightningModule):
             feat_img_e.flatten(2).transpose(1, 2)[valid_img_g]
         ])
 
-        all_feats = feats
-        all_targets = targets
+        all_feats, all_targets = feats, targets
+
         if self.use_pre_id_feat:
             if self.pre_index + 1 == self.current_index:
-                all_feats = torch.cat([feats, self.pre_id_feat], dim=0)
-                all_targets = torch.cat([targets, self.pre_id_target], dim=0)
-            self.pre_id_feat = feats.detach().clone()
-            self.pre_id_target = targets.detach().clone()
+                pre_id_feat, pre_id_target = self.id_manager.get_feature_bank()
+                if pre_id_feat.shape[0] > 0:
+                    pre_id_feat = pre_id_feat.to(feats.device)
+                    pre_id_target = pre_id_target.to(targets.device)
+                    all_feats = torch.cat([feats, pre_id_feat], dim=0)
+                    all_targets = torch.cat([targets, pre_id_target], dim=0)
+            else:
+                self.id_manager.reset()
+            self.id_manager.update_feature_bank(feats, targets)
             self.pre_index = self.current_index
 
         ids = self.id_head(feats)
@@ -267,6 +276,7 @@ class WorldTrackModel(pl.LightningModule):
         return total_loss
 
     def test_step(self, batch, batch_idx):
+        visual = False
         item, target = batch
         item['valid_bev'] = self.pre_valid_bev
         output = self(item)
@@ -291,6 +301,14 @@ class WorldTrackModel(pl.LightningModule):
         for frame, grid_gt, xyz, score in zip(item['frame'], item['grid_gt'], ref_xyz, scores_e.squeeze(2)):
             frame = int(frame.item())
             valid = score > self.conf_threshold
+            if visual:
+                xy = xyz[valid][:, :2].cpu().numpy()
+                img = np.zeros((self.bounds[3], self.bounds[1], 3), dtype=np.uint8)
+                plt.scatter(xy[:, 0], xy[:, 1], c='r', s=5)
+                plt.imshow(img)
+                plt.axis('off')
+                plt.show()
+
 
             self.moda_gt_list.extend([[frame, x.item(), y.item()] for x, y, _ in grid_gt[grid_gt.sum(1) != 0]])
             self.moda_pred_list.extend([[frame, x.cpu(), y.cpu()] for x, y, _ in xyz[valid]])

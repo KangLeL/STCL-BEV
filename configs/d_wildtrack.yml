@@ -14,7 +14,7 @@ model:
   learning_rate: 1e-3
   num_cameras: 7
   num_ids: 1201
-  useGCD: True
+  useGCD: False  # no work
   use_GTE: False
   fusion_type: null
   gnn_type: null
