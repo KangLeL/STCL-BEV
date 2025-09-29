@@ -38,6 +38,7 @@ class WorldTrackModel(pl.LightningModule):
             use_deformable=False,
             use_Temporal=False,
             use_new_deformable=False,
+            use_pre_id_feat=False,
     ):
         super().__init__()
         self.model_name = model_name
@@ -54,6 +55,7 @@ class WorldTrackModel(pl.LightningModule):
         self.center_loss_fn = FocalLoss()
         self.classification_loss = torch.nn.CrossEntropyLoss()
         self.contrastive_loss = SupConLoss()
+        self.use_pre_id_feat = use_pre_id_feat
 
         # Test
         self.moda_gt_list, self.moda_pred_list = [], []
@@ -77,6 +79,11 @@ class WorldTrackModel(pl.LightningModule):
         self.vox_util = vox.VoxelUtil(self.Y, self.Z, self.X, scene_centroid=self.scene_centroid, bounds=self.bounds)
         self.save_hyperparameters()
         self.pre_valid_bev = None
+        self.pre_id_feat = None
+        self.pre_id_target = None
+        self.pre_index = -2
+        self.current_index = None
+
 
     def forward(self, item):
         """
@@ -87,6 +94,7 @@ class WorldTrackModel(pl.LightningModule):
         ref_T_global: (B,4,4)
         vox_util: vox util object
         """
+        self.current_index = item['index']
         return self.model(
             rgb_cams=item['img'],
             pix_T_cams=item['intrinsic'],
@@ -173,9 +181,20 @@ class WorldTrackModel(pl.LightningModule):
             feat_bev_e.flatten(2).transpose(1, 2)[valid_g],
             feat_img_e.flatten(2).transpose(1, 2)[valid_img_g]
         ])
+
+        all_feats = feats
+        all_targets = targets
+        if self.use_pre_id_feat:
+            if self.pre_index + 1 == self.current_index:
+                all_feats = torch.cat([feats, self.pre_id_feat], dim=0)
+                all_targets = torch.cat([targets, self.pre_id_target], dim=0)
+            self.pre_id_feat = feats.detach().clone()
+            self.pre_id_target = targets.detach().clone()
+            self.pre_index = self.current_index
+
         ids = self.id_head(feats)
         reid_class_loss = self.classification_loss(ids, targets)*0.2
-        reid_contras_loss = self.contrastive_loss(feats, targets)*0.8
+        reid_contras_loss = self.contrastive_loss(all_feats, all_targets)*0.8
 
         loss_dict = {
             'center_loss': center_loss,

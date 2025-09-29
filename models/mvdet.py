@@ -183,7 +183,7 @@ class MVDet(nn.Module):
         )
 
         if self.use_Temporal:
-            self.pre_world_feat = world_features.detach()
+            self.pre_world_feat = world_features.detach().clone()
             self.pre_index = index
 
         # get history BEV features

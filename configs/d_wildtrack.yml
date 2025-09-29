@@ -14,7 +14,7 @@ model:
   learning_rate: 1e-3
   num_cameras: 7
   num_ids: 1201
-  useGCD: False
+  useGCD: True
   use_GTE: False
   fusion_type: null
   gnn_type: null
@@ -22,4 +22,5 @@ model:
   use_deformable: True
   use_Temporal: True
   use_new_deformable: True
+  use_pre_id_feat: True  # 扩充对比损失样本
 
