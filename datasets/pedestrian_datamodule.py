@@ -3,7 +3,7 @@ import os
 from torch.utils.data import DataLoader
 from typing import Optional
 from datasets.multiviewx_dataset import MultiviewX
-from datasets.sampler import RandomPairSampler
+from datasets.sampler import RandomPairSampler, GroupSampler
 from datasets.wildtrack_dataset import Wildtrack
 from datasets.pedestrian_dataset import PedestrianDataset
 
@@ -83,8 +83,7 @@ class PedestrianDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            shuffle=True,
-            # sampler=RandomPairSampler(self.data_train)
+            sampler=GroupSampler(self.data_train, num_groups=16)
         )
 
     def val_dataloader(self):

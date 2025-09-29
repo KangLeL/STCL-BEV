@@ -149,7 +149,7 @@ def gate_cost_matrix(kf, cost_matrix, tracks, detections, only_position=False):
     return cost_matrix
 
 
-def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_=0.20, gating_threshold=40):
+def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_=0.3, gating_threshold=40):
     if cost_matrix.size == 0:
         return cost_matrix
     gating_dim = 2 if only_position else 4
@@ -163,7 +163,7 @@ def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_
     #     cost_matrix[row, gating_distance > gating_threshold] = np.inf
     #     cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance * 0.1
 
-    gating_threshold = 50
+    gating_threshold = 70
     for row, track in enumerate(tracks):
         # 轨迹中心点 (x, y)
         track_xy = track.mean[:2]

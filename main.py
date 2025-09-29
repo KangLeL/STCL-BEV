@@ -37,6 +37,7 @@ class WorldTrackModel(pl.LightningModule):
             gnn_layers=0,
             use_deformable=False,
             use_Temporal=False,
+            use_new_deformable=False,
     ):
         super().__init__()
         self.model_name = model_name
@@ -67,7 +68,7 @@ class WorldTrackModel(pl.LightningModule):
             self.model = MVDet(self.Y, self.Z, self.X, encoder_type=self.encoder_name,
                                num_cameras=num_cameras, num_ids=num_ids, useGCD=useGCD, fusion_type=fusion_type,
                                use_GTE=use_GTE, gnn_type=gnn_type, gnn_layers=gnn_layers, use_deformable=use_deformable,
-                               use_Temporal=use_Temporal)
+                               use_Temporal=use_Temporal, use_new_deformable=use_new_deformable)
         else:
             raise ValueError(f'Unknown model name {self.model_name}')
 
@@ -95,7 +96,8 @@ class WorldTrackModel(pl.LightningModule):
             history_imgs=item['history_imgs'],
             history_intrins=item['history_intrins'],
             history_extrins=item['history_extrins'],
-            valid_bev=item['valid_bev'] if 'valid_bev' in item else None
+            valid_bev=item['valid_bev'] if 'valid_bev' in item else None,
+            index=item['index']
         )
 
     def loss(self, target, output):

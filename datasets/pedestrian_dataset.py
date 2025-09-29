@@ -355,6 +355,7 @@ class PedestrianDataset(VisionDataset):
             'num_cameras': self.num_cam,
             'town_path': self.root,
             'frame': frame,
+            'index': index,
             'grid_gt': grid_gt,
             'img_gt': (gt_boxes, gt_ids),
             'history_imgs': history_imgs,

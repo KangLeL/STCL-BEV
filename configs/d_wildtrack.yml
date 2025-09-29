@@ -20,5 +20,6 @@ model:
   gnn_type: null
   gnn_layers: 0
   use_deformable: True
-  use_Temporal: False
+  use_Temporal: True
+  use_new_deformable: True
 

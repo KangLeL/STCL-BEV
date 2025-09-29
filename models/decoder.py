@@ -221,12 +221,9 @@ class Decoder(nn.Module):
             instance_offset_output = self.instance_offset_head(x)
             instance_size_output = self.instance_size_head(x)
             instance_rot_output = self.instance_rot_head(x)
-
             x_id = self.gcd(x, instance_center_output)
-
             instance_id_feat_output = self.emb_scale * F.normalize(self.id_feat_head(x_id), dim=1)
         else:
-
             # bev
             instance_center_output = self.instance_center_head(x)
             instance_offset_output = self.instance_offset_head(x)
