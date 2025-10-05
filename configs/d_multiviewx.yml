@@ -13,3 +13,6 @@ model:
   num_ids: 350  # id: 0~349
   gating_threshold: 30000
   use_deformable: True
+  use_Temporal: True
+  use_new_deformable: True
+  use_pre_id_feat: True  # 扩充对比损失样本

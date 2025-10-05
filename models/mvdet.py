@@ -177,6 +177,8 @@ class MVDet(nn.Module):
         if self.use_Temporal:
             if self.pre_index is not None and (index - self.pre_index).item() != 1:
                 self.pre_world_feat = None
+            # elif self.pre_world_feat is not None:
+            #     self.pre_world_feat = self.pre_world_feat * valid_bev
 
         world_features, feat_cams_ = self.multi_view_to_bev(
             rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global, self.pre_world_feat
