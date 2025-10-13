@@ -9,10 +9,14 @@ model:
   resolution: [160, 2, 250]  # Y,Z,X
   bounds: [0, 1000, 0, 640, 0, 2]  # xmin,xmax,ymin,ymax,zmin,zmax
   depth: [100, 0, -20]
+  learning_rate: 1e-3
   num_cameras: 6
   num_ids: 350  # id: 0~349
-  gating_threshold: 30000
+  gating_threshold: 40
   use_deformable: True
-  use_Temporal: True
-  use_new_deformable: True
+  use_Temporal: False
+  use_new_deformable: False
   use_pre_id_feat: True  # 扩充对比损失样本
+  max_history: 3
+  freeze_backbone: True
+  pretrained_weights: /root/autodl-tmp/hukangle/earlybird/EarlyBird/lightning_logs/mxdef/checkpoints/model-epoch=94-val_loss=0.89.ckpt

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-def _nms(heat, kernel=3):
+def _nms(heat, kernel=5):
     pad = (kernel - 1) // 2
 
     hmax = nn.functional.max_pool2d(

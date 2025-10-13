@@ -14,6 +14,7 @@ from utils import vox, basic, decode
 from utils.reidtool import IDManager
 from evaluation.mod import modMetricsCalculator
 from evaluation.mot_bev import mot_metrics_pedestrian
+from evaluation.plot_heatmap import plot_heatmap
 from nuscenes.eval.common.config import config_factory
 
 
@@ -31,7 +32,7 @@ class WorldTrackModel(pl.LightningModule):
             scene_centroid=(0.0, 0.0, 0.0),
             max_detections=60,
             conf_threshold=0.4,
-            gating_threshold=1000,
+            gating_threshold=60,
             useGCD=False,
             use_GTE=False,
             fusion_type=None,
@@ -41,6 +42,11 @@ class WorldTrackModel(pl.LightningModule):
             use_Temporal=False,
             use_new_deformable=False,
             use_pre_id_feat=False,
+            pretrained_weights=None,
+            strict_load=False,
+            max_history=0,
+            freeze_backbone=False,
+            use_early_fusion=False,
     ):
         super().__init__()
         self.model_name = model_name
@@ -73,7 +79,8 @@ class WorldTrackModel(pl.LightningModule):
             self.model = MVDet(self.Y, self.Z, self.X, encoder_type=self.encoder_name,
                                num_cameras=num_cameras, num_ids=num_ids, useGCD=useGCD, fusion_type=fusion_type,
                                use_GTE=use_GTE, gnn_type=gnn_type, gnn_layers=gnn_layers, use_deformable=use_deformable,
-                               use_Temporal=use_Temporal, use_new_deformable=use_new_deformable)
+                               use_Temporal=use_Temporal, use_new_deformable=use_new_deformable,
+                               max_history=max_history, use_early_fusion=use_early_fusion)
         else:
             raise ValueError(f'Unknown model name {self.model_name}')
 
@@ -88,6 +95,34 @@ class WorldTrackModel(pl.LightningModule):
         self.pre_index = -2
         self.current_index = None
 
+        # 加载预训练权重（非严格模式）
+        if pretrained_weights:
+            state_dict = torch.load(pretrained_weights, map_location="cpu")['state_dict']
+
+            # 1. 非严格加载：忽略不匹配的键
+            if not strict_load:
+                current_state = self.state_dict()
+                filtered_state = {k: v for k, v in state_dict.items()
+                                  if k in current_state and v.shape == current_state[k].shape}
+                missing_keys = [k for k in current_state if k not in filtered_state]
+                unexpected_keys = [k for k in state_dict if k not in current_state]
+
+                print(f"Loaded {len(filtered_state)}/{len(state_dict)} parameters")
+                print(f"Current model has loaded {len(filtered_state)}/{len(current_state)} parameters")
+                print(f"Missing keys: {missing_keys}")
+                print(f"Unexpected keys: {unexpected_keys}")
+
+                self.load_state_dict(filtered_state, strict=False)
+            else:
+                self.load_state_dict(state_dict, strict=True)
+
+        # 2. 冻结特定参数
+        if freeze_backbone:
+            current_param = self.named_parameters()
+            for name, param in current_param:
+                if 'new' in name or 'head' in name:
+                    continue
+                param.requires_grad = False
 
     def forward(self, item):
         """
@@ -202,8 +237,8 @@ class WorldTrackModel(pl.LightningModule):
             self.pre_index = self.current_index
 
         ids = self.id_head(feats)
-        reid_class_loss = self.classification_loss(ids, targets)*0.2
-        reid_contras_loss = self.contrastive_loss(all_feats, all_targets)*0.8
+        reid_class_loss = self.classification_loss(ids, targets) * 0.2
+        reid_contras_loss = self.contrastive_loss(all_feats, all_targets) * 0.8
 
         loss_dict = {
             'center_loss': center_loss,
@@ -234,7 +269,7 @@ class WorldTrackModel(pl.LightningModule):
 
         output = self(item)
 
-        self.pre_valid_bev = target['valid_bev'].detach()
+        # self.pre_valid_bev = target['valid_bev'].detach()
 
         total_loss, loss_dict, stats_dict = self.loss(target, output)
 
@@ -291,6 +326,10 @@ class WorldTrackModel(pl.LightningModule):
         rot_e = output['instance_rot']
         id_e = output['instance_id_feat']
 
+        if True:
+            plot_heatmap(target['center_bev'][0].cpu().numpy())
+            plot_heatmap(center_e[0].cpu().numpy())
+
         xy_e, scores_e, ids_e, sizes_e, _, center_e_nms = decode.decoder(
             basic._sigmoid(center_e), offset_e, size_e, id_e, rz_e=rot_e, K=self.max_detections
         )
@@ -309,7 +348,6 @@ class WorldTrackModel(pl.LightningModule):
                 plt.axis('off')
                 plt.show()
 
-
             self.moda_gt_list.extend([[frame, x.item(), y.item()] for x, y, _ in grid_gt[grid_gt.sum(1) != 0]])
             self.moda_pred_list.extend([[frame, x.cpu(), y.cpu()] for x, y, _ in xyz[valid]])
 
@@ -318,7 +356,7 @@ class WorldTrackModel(pl.LightningModule):
         for frame, grid_gt, bev_det, bev_ids_e in zip(item['frame'], item['grid_gt'], bev_det, ids_e.cpu().numpy()):
             frame = int(frame.item())
             output_stracks = self.test_tracker.update(bev_det, bev_ids_e)
-            self.mota_gt_list.extend([[frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+            self.mota_gt_list.extend([[frame, i.item(), -1, -1, -1, -1, 1, x.item(), y.item(), -1]
                                       for x, y, i in grid_gt[grid_gt.sum(1) != 0]])
             self.mota_pred_list.extend([[frame, s.track_id, -1, -1, -1, -1, s.score.item()] + s.tlwh.tolist()[:2] + [-1]
                                         for s in output_stracks])
@@ -416,7 +454,9 @@ class WorldTrackModel(pl.LightningModule):
 
 if __name__ == '__main__':
     from lightning.pytorch.cli import LightningCLI
+
     torch.set_float32_matmul_precision('medium')
+
 
     class MyLightningCLI(LightningCLI):
         def add_arguments_to_parser(self, parser):

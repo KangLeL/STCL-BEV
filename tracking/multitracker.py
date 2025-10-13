@@ -1,7 +1,8 @@
-from collections import deque
+from collections import deque, defaultdict
 from typing import List
 from collections import OrderedDict
 import numpy as np
+from sklearn.cluster import DBSCAN
 
 from tracking.kalman_filter import KalmanFilter
 from tracking import matching
@@ -242,11 +243,13 @@ class JDETracker(object):
         remain_inds = dets[:, 4] > self.det_thresh
         dets = dets[remain_inds]
         id_feature = id_feature[remain_inds]
-
+        # dets, id_feature = cluster_boxes_with_dbscan(dets, id_feature, eps=10, min_samples=1)
+        """ Add newly detected tracklets to tracked_stracks"""
         if len(dets) > 0:
             """Detections"""
             detections = [STrack(tlwhs[:4], tlwhs[4], f, self.max_time_lost) for
                           (tlwhs, f) in zip(dets[:, :5], id_feature)]
+
         else:
             detections = []
 
@@ -266,8 +269,8 @@ class JDETracker(object):
         dists = matching.embedding_distance(strack_pool, detections)
         dists = matching.fuse_motion(self.kalman_filter, dists, strack_pool, detections,
                                      gating_threshold=self.gating_threshold)
-        # matches, u_track, u_detection = matching.linear_assignment(dists, thresh=1)
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=50)
+        # matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.5)
+        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=40)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -279,12 +282,12 @@ class JDETracker(object):
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
 
-        ''' Step 3: Second association, with IOU'''
+        ''' Step 3: Second association'''
         detections = [detections[i] for i in u_detection]
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
         # dists = matching.iou_distance(r_tracked_stracks, detections)
         dists = matching.center_distance(r_tracked_stracks, detections)
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=100)
+        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.gating_threshold * 1.4)
 
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
@@ -306,7 +309,7 @@ class JDETracker(object):
         detections = [detections[i] for i in u_detection]
         # dists = matching.iou_distance(unconfirmed, detections)
         dists = matching.center_distance(unconfirmed, detections)
-        matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=50)
+        matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=self.gating_threshold * 1.4)
         for itracked, idet in matches:
             unconfirmed[itracked].update(detections[idet], self.frame_id)
             activated_starcks.append(unconfirmed[itracked])
@@ -391,3 +394,52 @@ def remove_duplicate_stracks(stracksa, stracksb):
     resa = [t for i, t in enumerate(stracksa) if not i in dupa]
     resb = [t for i, t in enumerate(stracksb) if not i in dupb]
     return resa, resb
+
+
+def cluster_boxes_with_dbscan(current_boxes, id_features, eps=20, min_samples=1):
+    """
+    使用DBSCAN对当前帧的中心点进行聚类，并合并每个簇的框和特征向量。
+
+    参数:
+        current_boxes: 当前帧检测到的所有点坐标 (list of [x, y, w, h, score])
+        id_features: 当前帧的解码特征向量 (list of vectors)
+        eps: DBSCAN的邻域半径参数
+        min_samples: DBSCAN的最小样本数参数
+
+    返回:
+        merged_boxes: 聚类后合并的框 (list of [x, y, ...])
+        merged_features: 聚类后合并的特征向量 (list of vectors)
+    """
+    # 使用DBSCAN聚类当前帧的中心点
+    current_center_points = current_boxes[:, :2]
+    clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(current_center_points)
+    labels = clustering.labels_
+
+    # 聚类后处理每个簇
+    clustered_boxes = defaultdict(list)
+    clustered_features = defaultdict(list)
+    for idx, label in enumerate(labels):
+        clustered_boxes[label].append(current_boxes[idx])
+        if id_features is not None:
+            clustered_features[label].append(id_features[idx])
+
+    # 合并每个簇的框
+    merged_boxes = []
+    merged_features = []
+    for label, boxes in clustered_boxes.items():
+        # 计算簇的平均中心点和尺寸
+        merged_box = np.mean(np.stack(boxes), axis=0)
+        merged_boxes.append(merged_box)
+
+        # 合并特征向量
+        if id_features is not None:
+            merged_feature = np.mean(np.stack(clustered_features[label]), axis=0)
+            merged_features.append(merged_feature)
+
+    if id_features is not None:
+        merged_boxes = np.stack(merged_boxes)
+        merged_features = np.stack(merged_features)
+        return merged_boxes, merged_features
+    else:
+        merged_boxes = np.stack(merged_boxes)
+        return merged_boxes, None

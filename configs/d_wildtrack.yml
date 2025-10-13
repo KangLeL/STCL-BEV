@@ -20,7 +20,10 @@ model:
   gnn_type: null
   gnn_layers: 0
   use_deformable: True
-  use_Temporal: True
-  use_new_deformable: True
-  use_pre_id_feat: True  # 扩充对比损失样本
-
+  use_Temporal: False
+  use_new_deformable: False
+  use_early_fusion: False
+  use_pre_id_feat: False  # 扩充对比损失样本
+  pretrained_weights: null #/root/autodl-tmp/hukangle/earlybird/EarlyBird/lightning_logs/version_138/checkpoints/model-epoch=51-val_loss=3.45.ckpt #/root/autodl-tmp/hukangle/earlybird/EarlyBird/lightning_logs/deform/checkpoints/model-epoch=49-val_loss=3.52.ckpt
+  max_history: 0
+  freeze_backbone: False

@@ -3,7 +3,7 @@ seed_everything: 1337
 trainer:
   accelerator: gpu
   devices: 1
-  max_epochs: 55
+  max_epochs: 40
   accumulate_grad_batches: 8
   gradient_clip_val: 0.5
   check_val_every_n_epoch: 1
@@ -17,4 +17,5 @@ trainer:
         monitor: val_loss
         mode: min
         save_last: true
+        save_top_k: 10
         filename: "model-{epoch:02d}-{val_loss:.2f}"

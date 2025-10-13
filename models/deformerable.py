@@ -12,7 +12,7 @@ import copy
 
 class DeformTransWorldFeat(nn.Module):
     def __init__(self, num_cam, Rworld_shape, base_dim, hidden_dim=128, dropout=0.1, nhead=8, dim_feedforward=512,
-                 n_points=4, stride=2, use_Temporal=False, use_new_deformable=False):
+                 n_points=4, stride=2, use_Temporal=False, use_new_deformable=False,use_early_fusion=False):
         super(DeformTransWorldFeat, self).__init__()
         self.stride = stride
         self.downsample = nn.Sequential(nn.Conv2d(base_dim, hidden_dim, 3, stride, 1), nn.ReLU(), )
@@ -25,7 +25,11 @@ class DeformTransWorldFeat(nn.Module):
         encoder_layer_list.append(DeformableTransformerEncoderLayer(hidden_dim, dim_feedforward, dropout,
                                                                     n_levels=num_cam, n_heads=nhead,
                                                                     n_points=n_points))
-        reference_points = reference_points_sample.repeat(num_cam, 1, 1, 1)  # (H*W), n_cam, n_points, 2
+        self.use_early_fusion = use_early_fusion
+        if use_early_fusion:
+            reference_points = reference_points_sample
+        else:
+            reference_points = reference_points_sample.repeat(num_cam, 1, 1, 1)  # (H*W), n_cam, n_points, 2
         self.encoder = DeformableTransformerEncoder(encoder_layer_list, 3, reference_points,
                                                     use_new_deformable=use_new_deformable)
         self.pos_embedding = create_pos_embedding(np.array(Rworld_shape) // stride, hidden_dim // 2)
@@ -36,7 +40,7 @@ class DeformTransWorldFeat(nn.Module):
                                       nn.Conv2d(hidden_dim, hidden_dim, 3, 1, 1), nn.ReLU(), )
         self._reset_parameters()
 
-    def forward(self, x, visualize=False, pre_world_features=None):
+    def forward(self, x, pre_world_features=None):
         B, N, C, H, W = x.shape
 
         x = self.downsample(x.view(B * N, C, H, W))
@@ -53,15 +57,23 @@ class DeformTransWorldFeat(nn.Module):
                                                align_corners=False)
 
         src_flatten = x.view(B, N, C, H, W).permute(0, 1, 3, 4, 2).contiguous().view([B, N * H * W, C])
-        lvl_pos_embed_flatten = (self.pos_embedding.to(x.device).flatten(2).transpose(1, 2).unsqueeze(1) +
-                                 self.lvl_embedding.view([B, N, 1, C])).view([B, N * H * W, C])
+        if self.use_early_fusion:
+            query = self.merge_linear(x.view(B, N * C, H, W)).view(B,C,-1).permute(0,2,1).contiguous()
+            lvl_pos_embed_flatten = self.pos_embedding.to(x.device).flatten(2).transpose(1, 2)
+        else:
+            query = src_flatten
+            lvl_pos_embed_flatten = (self.pos_embedding.to(x.device).flatten(2).transpose(1, 2).unsqueeze(1) +
+                                     self.lvl_embedding.view([B, N, 1, C])).view([B, N * H * W, C])
         spatial_shapes = torch.as_tensor(np.array([[H, W]] * N), dtype=torch.long, device=x.device)
         level_start_index = torch.cat((spatial_shapes.new_zeros((1,)), spatial_shapes.prod(1).cumsum(0)[:-1]))
         valid_ratios = torch.ones([B, N, 2], device=x.device)
-        memory = self.encoder(src_flatten, spatial_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten,
+        memory = self.encoder(query, src_flatten, spatial_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten,
                               pre_world_features=pre_world_features)
-        merged_feat = self.merge_linear(memory.view(B, N, H, W, C).permute(0, 1, 4, 2, 3).contiguous().
-                                        view(B, N * C, H, W))
+        if self.use_early_fusion:
+            merged_feat = memory.view(B, C, H, W)
+        else:
+            merged_feat = self.merge_linear(memory.view(B, N, H, W, C).permute(0, 1, 4, 2, 3).contiguous().
+                                            view(B, N * C, H, W))
         merged_feat = self.upsample(merged_feat)
         return merged_feat
 
@@ -132,9 +144,9 @@ class DeformableTransformerEncoder(nn.Module):
             self.use_Temporal = True
             self.TSA_ref = reference_points[:, 0:1, :, :]  # (H*W), 1, n_points, 2
 
-    def forward(self, src, spatial_shapes, level_start_index, valid_ratios, pos=None, padding_mask=None,
+    def forward(self, query, src, spatial_shapes, level_start_index, valid_ratios, pos=None, padding_mask=None,
                 pre_world_features=None):
-        output = src
+        output = query
         if self.reference_points is None:
             reference_points = self.get_reference_points(spatial_shapes, valid_ratios, device=src.device)
         else:

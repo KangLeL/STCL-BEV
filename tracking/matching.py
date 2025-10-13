@@ -149,32 +149,28 @@ def gate_cost_matrix(kf, cost_matrix, tracks, detections, only_position=False):
     return cost_matrix
 
 
-def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_=0.7, gating_threshold=40):
+def fuse_motion(kf, cost_matrix, tracks, detections, only_position=True, lambda_=0.6, gating_threshold=40):
     if cost_matrix.size == 0:
         return cost_matrix
 
-    gating_threshold = 50
     measurements = np.asarray([det.to_xyah() for det in detections])
+
     # for row, track in enumerate(tracks):
     #     gating_distance = kf.gating_distance(
     #         track.mean, track.covariance, measurements, only_position, metric='maha')
     #     cost_matrix[row, gating_distance > gating_threshold] = np.inf
     #     cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance * 0.1
 
-    for row, track in enumerate(tracks):
-        # 轨迹中心点 (x, y)
-        track_xy = track.mean[:2]
+    track_xy = np.array([track.mean[:2] for track in tracks])  # shape: (num_tracks, 2)
+    det_xy = measurements[:, :2]  # shape: (num_detections, 2)
 
-        # 所有检测中心点 (x, y)
-        det_xy = measurements[:, :2]
+    euclidean_distance = np.linalg.norm(track_xy[:, None, :] - det_xy[None, :, :], axis=2)  # shape: (num_tracks, num_detections)
 
-        euclidean_distance = np.linalg.norm(det_xy - track_xy[None, :], axis=1)
+    cost_matrix[euclidean_distance > gating_threshold] = np.inf
 
-        cost_matrix[row, euclidean_distance > gating_threshold] = np.inf
-
-        cost_matrix[row] = (
-                lambda_ * cost_matrix[row] +
-                (1 - lambda_) * euclidean_distance
-        )
+    cost_matrix = (
+       lambda_ * cost_matrix +
+       (1 - lambda_) * euclidean_distance
+    )
 
     return cost_matrix
