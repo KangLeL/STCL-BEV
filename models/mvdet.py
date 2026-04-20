@@ -9,6 +9,8 @@ from kornia.geometry.transform.imgwarp import warp_perspective
 from models.encoder import Encoder_res101, Encoder_res50, Encoder_res18, Encoder_eff, Encoder_swin_t, Encoder_res34
 from models.decoder import Decoder
 
+import evaluation.vis_featuremap as vis
+
 from .deformerable import DeformTransWorldFeat, create_reference_map
 
 
@@ -148,6 +150,11 @@ class MVDet(nn.Module):
 
         # --- 预处理 ---
         rgb_cams_ = __p(rgb_cams)  # B*S,3,H,W
+
+        # # ===== 可视化：编码前 =====
+        # for i in range(min(7, rgb_cams_.shape[0])):  # 最多看4张
+        #     vis.vis_rgb(rgb_cams_[i], f"input_cam_{i}")
+
         pix_T_cams_ = __p(pix_T_cams)  # B*S,4,4
         cams_T_global_ = __p(cams_T_global)  # B*S,4,4
 
@@ -159,6 +166,11 @@ class MVDet(nn.Module):
         device = rgb_cams_.device
         rgb_cams_ = (rgb_cams_ - self.mean.to(device)) / self.std.to(device)
         feat_cams_ = self.encoder(rgb_cams_)  # B*S,Cf,Hf,Wf
+
+        # # ===== 可视化：编码后 =====
+        # for i in range(min(7, feat_cams_.shape[0])):
+        #     vis.vis_feat(feat_cams_[i], f"feat_cam_{i}")
+
         _, Cf, Hf, Wf = feat_cams_.shape
 
         # --- intrinsics 缩放 ---
@@ -178,6 +190,11 @@ class MVDet(nn.Module):
         world_features_ = warp_perspective(feat_cams_, proj_mats, (self.Y, self.X), align_corners=False)
         world_features = __u(world_features_)  # B,S,Cf,Y,X
 
+        # ===== 可视化：投影后（每个相机）=====
+        # for b in range(min(1, world_features.shape[0])):
+        #     for s in range(min(7, world_features.shape[1])):
+        #         vis.vis_feat(world_features[b, s], f"bev_b{b}_cam{s}")
+
         # --- 融合不同相机 ---
         if self.use_deformable:
             world_features = self.deformerable(world_features, pre_world_feat)
@@ -187,6 +204,8 @@ class MVDet(nn.Module):
         else:
             world_features = self.world_feat(world_features.view(B, S * self.feat2d_dim, self.Y, self.X))
 
+        # ===== 可视化：融合后 =====
+        # vis.vis_feat(world_features[0], "final_bev")
         return world_features, feat_cams_
 
     def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global,

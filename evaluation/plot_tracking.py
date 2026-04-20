@@ -24,5 +24,5 @@ def plot(path):
 if __name__ == '__main__':
     # path = '../../data/cache/mota_gt.txt'
     # path = '../../data/cache/mota_pred.txt'
-    path = '/root/autodl-tmp/hukangle/earlybird/EarlyBird/lightning_logs/version_30/mota_pred.txt'
+    path = '/root/autodl-tmp/hukangle/earlybird/EarlyBird/lightning_logs/version_19/mota_pred.txt'
     plot(path)
