@@ -12,7 +12,6 @@ We use [MultiviewX](https://github.com/hou-yz/MultiviewX) and [Wildtrack](https:
 
 ## 🚀 Usage
 
----
 
 ### Getting Started
 1. Install PyTorch with CUDA support:
@@ -59,18 +58,14 @@ python main.py test -c checkpoints/{multiviewx,wildtrack}.yaml \
     --ckpt checkpoints/{multiviewx,wildtrack}.ckpt
 ```
 
----
-
 ## Acknowledgement
 
----
 Simple-BEV: Adam W. Harley
 
 MVDeTr: Yunzhong Hou
 
 EarlyBird: Torben Teepe
 
----
 
 ## 📜 Citation
 
