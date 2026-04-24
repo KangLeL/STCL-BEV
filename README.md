@@ -6,8 +6,13 @@
 > This repository contains the official implementation of the manuscript currently under submission to *The Visual Computer*.
 > If you find this code useful, please consider citing our paper (see Citation section below).
 
+## Data Preparation
+
+We use [MultiviewX](https://github.com/hou-yz/MultiviewX) and [Wildtrack](https://www.epfl.ch/labs/cvlab/data/data-wildtrack/) in this project.
 
 ## 🚀 Usage
+
+---
 
 ### Getting Started
 1. Install PyTorch with CUDA support:
