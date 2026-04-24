@@ -47,7 +47,7 @@ python main.py fit -c configs/t_fit.yml \
 
 ### Pretrained Weights
 
-The pretrained model is available in the project release page.
+The pretrained model is available in the project [release](https://github.com/KangLeL/STCL-BEV/releases/tag/checkpoints) page.
 
 Please download the checkpoint and place it under the `checkpoints/` directory.
 
