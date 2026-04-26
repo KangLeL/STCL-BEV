@@ -1,12 +1,12 @@
 data:
   class_path: datasets.PedestrianDataModule
   init_args:
-    data_dir: "/root/autodl-tmp/hukangle/mvdetr/Data/Wildtrack"
+    data_dir: "/root/autodl-tmp/hukangle/mvdetr/Data/Wildtrack" # 数据集路径
     batch_size: 1
     num_workers: 8
-    use_grid_mask: True
-    history_frames: 0
-    new_augmentation: False
+    use_grid_mask: True # 是否使用GridMask数据增强
+    history_frames: 0 # 废弃
+    new_augmentation: False # 废弃
 model:
   resolution: [120, 2, 360]  # Y,Z,X
   bounds: [0, 1440, 0, 480, 0, 200]  # xmin,xmax,ymin,ymax,zmin,zmax
@@ -15,15 +15,15 @@ model:
   num_cameras: 7
   num_ids: 1201
   useGCD: False  # no work
-  use_GTE: False
-  fusion_type: null
-  gnn_type: null
-  gnn_layers: 0
-  use_deformable: True
-  use_Temporal: False
-  use_new_deformable: False
-  use_early_fusion: False
-  use_pre_id_feat: False  # 扩充对比损失样本
-  pretrained_weights: null # 从预训练的模型加载权重，路径为预训练模型的权重文件路径
-  max_history: 0
-  freeze_backbone: False
+  use_GTE: False # no work
+  fusion_type: null # 废弃
+  gnn_type: null # 废弃
+  gnn_layers: 0 # 废弃
+  use_deformable: True # 是否使用可变形注意力, 如果为False，则使用卷积融合
+  use_Temporal: False # 废弃
+  use_new_deformable: False # 默认使用False
+  use_early_fusion: False # 默认使用False
+  use_pre_id_feat: True  # 扩充对比损失样本， 如果为True，则使用历史帧的ID特征进行对比学习
+  pretrained_weights: null # 从预训练的模型加载权重，路径为预训练模型的权重文件路径，先训练检测模型，保存权重文件，再将路径填入此处，进行联合训练，注意冻结检测模型的骨干网络权重
+  max_history: 2 # 历史帧数，0表示不使用历史帧
+  freeze_backbone: False # 是否冻结骨干网络权重，冻结后只训练时间融合模块

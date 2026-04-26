@@ -40,6 +40,8 @@ pip install -r requirements.txt
 
 ### Training
 
+The training parameter configurations are described in the configuration file.
+
 ```bash
 python main.py fit -c configs/t_fit.yml \
     -c configs/d_{multiviewx,wildtrack}.yml

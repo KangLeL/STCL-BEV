@@ -16,6 +16,7 @@ from evaluation.mod import modMetricsCalculator
 from evaluation.mot_bev import mot_metrics_pedestrian
 from evaluation.plot_heatmap import plot_heatmap
 from nuscenes.eval.common.config import config_factory
+import time
 
 
 class WorldTrackModel(pl.LightningModule):
@@ -81,6 +82,8 @@ class WorldTrackModel(pl.LightningModule):
                                use_GTE=use_GTE, gnn_type=gnn_type, gnn_layers=gnn_layers, use_deformable=use_deformable,
                                use_Temporal=use_Temporal, use_new_deformable=use_new_deformable,
                                max_history=max_history, use_early_fusion=use_early_fusion)
+
+
         else:
             raise ValueError(f'Unknown model name {self.model_name}')
 
@@ -134,6 +137,24 @@ class WorldTrackModel(pl.LightningModule):
         vox_util: vox util object
         """
         self.current_index = item['index']
+        # inputs = (
+        #     item['img'],
+        #     item['intrinsic'],
+        #     item['extrinsic'],
+        #     self.vox_util,
+        #     item['ref_T_global'],
+        #     item['history_imgs'],
+        #     item['history_intrins'],
+        #     item['history_extrins'],
+        #     item['valid_bev'] if 'valid_bev' in item else None,
+        #     item['index']
+        # )
+        # from thop import profile
+        #
+        # flops, params = profile(self.model, inputs=inputs)
+        #
+        # print("FLOPs:", flops / 1e9, "GFLOPs")
+        # print("Params:", params / 1e6, "M")
         return self.model(
             rgb_cams=item['img'],
             pix_T_cams=item['intrinsic'],
@@ -263,6 +284,7 @@ class WorldTrackModel(pl.LightningModule):
 
         return total_loss, loss_dict, stats_dict
 
+
     def training_step(self, batch, batch_idx):
         item, target = batch
         item['valid_bev'] = self.pre_valid_bev
@@ -310,7 +332,16 @@ class WorldTrackModel(pl.LightningModule):
             self.log(f'val/{key}', value, batch_size=B, sync_dist=True)
         return total_loss
 
+    def on_test_start(self) -> None:
+        self.warmup = 20
+        self.total_samples = 0
+        self.total_time = 0
+
+
     def test_step(self, batch, batch_idx):
+        if batch_idx > self.warmup:
+            start_time = time.time()
+
         visual = False
         item, target = batch
         item['valid_bev'] = self.pre_valid_bev
@@ -326,7 +357,7 @@ class WorldTrackModel(pl.LightningModule):
         rot_e = output['instance_rot']
         id_e = output['instance_id_feat']
 
-        if True:
+        if False:
             plot_heatmap(target['center_bev'][0].cpu().numpy())
             plot_heatmap(center_e[0].cpu().numpy())
 
@@ -384,8 +415,14 @@ class WorldTrackModel(pl.LightningModule):
                                     'detection_name': 'pedestrian', 'detection_score': 1,
                                     'attribute_name': ''}
                 self.mAP_results_gt[str(frame)].append(sample_result_gt)
-
+        if batch_idx > self.warmup:
+            end_time = time.time()
+            self.total_time += (end_time - start_time)
+            self.total_samples += item['img'].shape[0]
     def on_test_epoch_end(self):
+        fps = self.total_samples / self.total_time if self.total_time > 0 else 0
+        print(f"FPS: {fps:.2f}")
+
         log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
         # moda & modp
         pred_path = osp.join(log_dir, 'moda_pred.txt')
